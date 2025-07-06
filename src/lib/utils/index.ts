@@ -547,10 +547,13 @@ export const removeLastWordFromString = (inputString, wordString) => {
 	// Split the last line into an array of words
 	const words = lastLine.split(' ');
 
-	// Conditional to check for the last word removal
-	if (words.at(-1) === wordString || (wordString === '' && words.at(-1) === '\\#')) {
-		words.pop(); // Remove last word if condition is satisfied
-	}
+        // Conditional to check for the last word removal
+        if (
+                words.at(-1) === wordString ||
+                (wordString === '' && ['\\#', '\\&'].includes(words.at(-1)))
+        ) {
+                words.pop(); // Remove last word if condition is satisfied
+        }
 
 	// Join the remaining words back into a string and handle space correctly
 	let updatedLastLine = words.join(' ');
