@@ -1332,7 +1332,7 @@
 	"URL": "",
 	"URL Mode": "",
 	"Usage": "",
-	"Use '#' in the prompt input to load and include your knowledge.": "",
+        "Use '#' in the prompt input to load and include your knowledge.": "Use '#' or '&' in the prompt input to load and include your knowledge.",
 	"Use Gravatar": "",
 	"Use groups to group your users and assign permissions.": "",
 	"Use Initials": "",

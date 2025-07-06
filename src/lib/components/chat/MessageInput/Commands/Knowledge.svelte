@@ -12,8 +12,9 @@
 
 	const i18n = getContext('i18n');
 
-	export let prompt = '';
-	export let command = '';
+        export let prompt = '';
+        export let command = '';
+        export let collectionsOnly: boolean = false;
 
 	const dispatch = createEventDispatcher();
 	let selectedIdx = 0;
@@ -141,14 +142,18 @@
 					]
 				: [];
 
-		items = [...collections, ...collection_files, ...legacy_collections, ...legacy_documents].map(
-			(item) => {
-				return {
-					...item,
-					...(item?.legacy || item?.meta?.legacy || item?.meta?.document ? { legacy: true } : {})
-				};
-			}
-		);
+                items = [...collections, ...collection_files, ...legacy_collections, ...legacy_documents].map(
+                        (item) => {
+                                return {
+                                        ...item,
+                                        ...(item?.legacy || item?.meta?.legacy || item?.meta?.document ? { legacy: true } : {})
+                                };
+                        }
+                );
+
+                if (collectionsOnly) {
+                        items = items.filter((item) => item.type === 'collection');
+                }
 
 		fuse = new Fuse(items, {
 			keys: ['name', 'description']
