@@ -355,6 +355,28 @@ class ChatTable:
         except Exception:
             return None
 
+    def toggle_chat_global_pinned_by_id_and_group_id(
+        self, id: str, group_id: str
+    ) -> Optional[ChatModel]:
+        try:
+            with get_db() as db:
+                chat = db.get(Chat, id)
+                meta = chat.meta or {}
+                pinned_groups = set(meta.get("pinned_group_ids", []))
+                if group_id in pinned_groups:
+                    pinned_groups.remove(group_id)
+                else:
+                    pinned_groups.add(group_id)
+                meta["pinned_group_ids"] = list(pinned_groups)
+                chat.meta = meta
+                chat.updated_at = int(time.time())
+                db.commit()
+                db.refresh(chat)
+                return ChatModel.model_validate(chat)
+        except Exception as e:
+            log.exception(e)
+            return None
+
     def toggle_chat_archive_by_id(self, id: str) -> Optional[ChatModel]:
         try:
             with get_db() as db:
@@ -559,6 +581,19 @@ class ChatTable:
                 .order_by(Chat.updated_at.desc())
             )
             return [ChatModel.model_validate(chat) for chat in all_chats]
+
+    def get_pinned_chats_by_group_ids(self, group_ids: list[str]) -> list[ChatModel]:
+        with get_db() as db:
+            all_chats = db.query(Chat).filter_by(archived=False).all()
+
+            result = []
+            for chat in all_chats:
+                meta = chat.meta or {}
+                pinned_groups = meta.get("pinned_group_ids", [])
+                if any(group_id in pinned_groups for group_id in group_ids):
+                    result.append(ChatModel.model_validate(chat))
+
+            return result
 
     def get_archived_chats_by_user_id(self, user_id: str) -> list[ChatModel]:
         with get_db() as db:

@@ -615,7 +615,52 @@ export const toggleChatPinnedStatusById = async (token: string, id: string) => {
 		throw error;
 	}
 
-	return res;
+        return res;
+};
+
+export const toggleChatGlobalPinnedById = async (
+        token: string,
+        id: string,
+        groupId: string
+) => {
+        let error = null;
+
+        const res = await fetch(
+                `${WEBUI_API_BASE_URL}/chats/${id}/pin/global/${groupId}`,
+                {
+                        method: 'POST',
+                        headers: {
+                                Accept: 'application/json',
+                                'Content-Type': 'application/json',
+                                ...(token && { authorization: `Bearer ${token}` })
+                        }
+                }
+        )
+                .then(async (res) => {
+                        if (!res.ok) throw await res.json();
+                        return res.json();
+                })
+                .then((json) => {
+                        return json;
+                })
+                .catch((err) => {
+                        error = err;
+
+                        if ('detail' in err) {
+                                error = err.detail;
+                        } else {
+                                error = err;
+                        }
+
+                        console.error(err);
+                        return null;
+                });
+
+        if (error) {
+                throw error;
+        }
+
+        return res;
 };
 
 export const cloneChatById = async (token: string, id: string, title?: string) => {

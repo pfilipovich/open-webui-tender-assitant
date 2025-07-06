@@ -213,9 +213,19 @@ async def get_chats_by_folder_id(folder_id: str, user=Depends(get_verified_user)
 
 @router.get("/pinned", response_model=list[ChatTitleIdResponse])
 async def get_user_pinned_chats(user=Depends(get_verified_user)):
+    user_groups = Groups.get_groups_by_member_id(user.id)
+    group_ids = [group.id for group in user_groups]
+
+    pinned_chats = Chats.get_pinned_chats_by_user_id(user.id)
+    pinned_chats.extend(Chats.get_pinned_chats_by_group_ids(group_ids))
+
+    unique = {}
+    for chat in pinned_chats:
+        if chat.id not in unique:
+            unique[chat.id] = chat
+
     return [
-        ChatTitleIdResponse(**chat.model_dump())
-        for chat in Chats.get_pinned_chats_by_user_id(user.id)
+        ChatTitleIdResponse(**chat.model_dump()) for chat in unique.values()
     ]
 
 
@@ -584,6 +594,27 @@ async def pin_chat_by_id(id: str, user=Depends(get_verified_user)):
     else:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail=ERROR_MESSAGES.DEFAULT()
+        )
+
+
+@router.post("/{id}/pin/global/{group_id}", response_model=Optional[ChatResponse])
+async def pin_chat_global_by_id(
+    id: str, group_id: str, user=Depends(get_verified_user)
+):
+    group = Groups.get_group_by_id(group_id)
+    if group and (user.role == "admin" or user.id in group.user_ids):
+        chat = Chats.toggle_chat_global_pinned_by_id_and_group_id(id, group_id)
+        if chat:
+            return chat
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=ERROR_MESSAGES.DEFAULT("Error updating chat"),
+            )
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
         )
 
 
