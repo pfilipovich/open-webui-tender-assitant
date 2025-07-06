@@ -12,8 +12,9 @@
 
 	const i18n = getContext('i18n');
 
-	export let prompt = '';
-	export let command = '';
+        export let prompt = '';
+        export let command = '';
+        export let collectionsOnly = false;
 
 	const dispatch = createEventDispatcher();
 	let selectedIdx = 0;
@@ -141,12 +142,17 @@
 					]
 				: [];
 
-		items = [...collections, ...collection_files, ...legacy_collections, ...legacy_documents].map(
-			(item) => {
-				return {
-					...item,
-					...(item?.legacy || item?.meta?.legacy || item?.meta?.document ? { legacy: true } : {})
-				};
+                let baseItems = [...collections, ...legacy_collections];
+                if (!collectionsOnly) {
+                        baseItems = [...baseItems, ...collection_files, ...legacy_documents];
+                }
+
+                items = baseItems.map(
+                        (item) => {
+                                return {
+                                        ...item,
+                                        ...(item?.legacy || item?.meta?.legacy || item?.meta?.document ? { legacy: true } : {})
+                                };
 			}
 		);
 
@@ -164,7 +170,7 @@
 	};
 </script>
 
-{#if filteredItems.length > 0 || prompt.split(' ')?.at(0)?.substring(1).startsWith('http')}
+{#if filteredItems.length > 0 || (!collectionsOnly && prompt.split(' ')?.at(0)?.substring(1).startsWith('http'))}
 	<div
 		id="commands-container"
 		class="px-2 mb-2 text-left w-full absolute bottom-0 left-0 right-0 z-10"
@@ -272,11 +278,11 @@
 							</div> -->
 					{/each}
 
-					{#if prompt
-						.split(' ')
-						.some((s) => s.substring(1).startsWith('https://www.youtube.com') || s
-									.substring(1)
-									.startsWith('https://youtu.be'))}
+                                        {#if !collectionsOnly && prompt
+                                                .split(' ')
+                                                .some((s) => s.substring(1).startsWith('https://www.youtube.com') || s
+                                                                        .substring(1)
+                                                                        .startsWith('https://youtu.be'))}
 						<button
 							class="px-3 py-1.5 rounded-xl w-full text-left bg-gray-50 dark:bg-gray-850 dark:text-gray-100 selected-command-option-button"
 							type="button"
@@ -299,7 +305,7 @@
 
 							<div class=" text-xs text-gray-600 line-clamp-1">{$i18n.t('Youtube')}</div>
 						</button>
-					{:else if prompt.split(' ')?.at(0)?.substring(1).startsWith('http')}
+                                        {:else if !collectionsOnly && prompt.split(' ')?.at(0)?.substring(1).startsWith('http')}
 						<button
 							class="px-3 py-1.5 rounded-xl w-full text-left bg-gray-50 dark:bg-gray-850 dark:text-gray-100 selected-command-option-button"
 							type="button"

@@ -32,8 +32,10 @@
 	let command = '';
 	$: command = prompt?.split('\n').pop()?.split(' ')?.pop() ?? '';
 
-	let show = false;
-	$: show = ['/', '#', '@'].includes(command?.charAt(0)) || '\\#' === command.slice(0, 2);
+        let show = false;
+        $: show = ['/', '#', '@', '&'].includes(command?.charAt(0)) ||
+                '\\#' === command.slice(0, 2) ||
+                '\\&' === command.slice(0, 2);
 
 	$: if (show) {
 		init();
@@ -55,14 +57,14 @@
 
 {#if show}
 	{#if !loading}
-		{#if command?.charAt(0) === '/'}
-			<Prompts bind:this={commandElement} bind:prompt bind:files {command} />
-		{:else if (command?.charAt(0) === '#' && command.startsWith('#') && !command.includes('# ')) || ('\\#' === command.slice(0, 2) && command.startsWith('#') && !command.includes('# '))}
-			<Knowledge
-				bind:this={commandElement}
-				bind:prompt
-				command={command.includes('\\#') ? command.slice(2) : command}
-				on:youtube={(e) => {
+                {#if command?.charAt(0) === '/'}
+                        <Prompts bind:this={commandElement} bind:prompt bind:files {command} />
+                {:else if (command?.charAt(0) === '#' && command.startsWith('#') && !command.includes('# ')) || ('\\#' === command.slice(0, 2) && command.startsWith('#') && !command.includes('# '))}
+                        <Knowledge
+                                bind:this={commandElement}
+                                bind:prompt
+                                command={command.includes('\\#') ? command.slice(2) : command}
+                                on:youtube={(e) => {
 					console.log(e);
 					dispatch('upload', {
 						type: 'youtube',
@@ -90,13 +92,35 @@
 						}
 					];
 
-					dispatch('select');
-				}}
-			/>
-		{:else if command?.charAt(0) === '@'}
-			<Models
-				bind:this={commandElement}
-				{command}
+                                        dispatch('select');
+                                }}
+                        />
+                {:else if (command?.charAt(0) === '&' && command.startsWith('&') && !command.includes('& ')) || ('\\&' === command.slice(0, 2) && command.startsWith('&') && !command.includes('& '))}
+                        <Knowledge
+                                bind:this={commandElement}
+                                bind:prompt
+                                command={command.includes('\\&') ? command.slice(2) : command}
+                                collectionsOnly={true}
+                                on:select={(e) => {
+                                        if (files.find((f) => f.id === e.detail.id)) {
+                                                return;
+                                        }
+
+                                        files = [
+                                                ...files,
+                                                {
+                                                        ...e.detail,
+                                                        status: 'processed'
+                                                }
+                                        ];
+
+                                        dispatch('select');
+                                }}
+                        />
+                {:else if command?.charAt(0) === '@'}
+                        <Models
+                                bind:this={commandElement}
+                                {command}
 				on:select={(e) => {
 					prompt = removeLastWordFromString(prompt, command);
 
