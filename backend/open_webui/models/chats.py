@@ -589,7 +589,7 @@ class ChatTable:
                 condition = or_(
                     *[
                         text(
-                            """
+                            f"""
                             EXISTS (
                                 SELECT 1 FROM json_each(Chat.meta, '$.pinned_groups') AS pg
                                 WHERE pg.value = :gid_{idx}
@@ -603,7 +603,7 @@ class ChatTable:
                 condition = or_(
                     *[
                         text(
-                            """
+                            f"""
                             EXISTS (
                                 SELECT 1 FROM json_array_elements_text(Chat.meta->'pinned_groups') AS pg
                                 WHERE pg = :gid_{idx}
@@ -615,7 +615,7 @@ class ChatTable:
                 )
             else:
                 raise NotImplementedError(f"Unsupported dialect: {db.bind.dialect.name}")
-
+            
             all_chats = (
                 db.query(Chat)
                 .filter(condition)

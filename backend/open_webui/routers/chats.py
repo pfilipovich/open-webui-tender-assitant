@@ -11,6 +11,7 @@ from open_webui.models.chats import (
     Chats,
     ChatTitleIdResponse,
 )
+from open_webui.models.groups import Groups
 from open_webui.models.tags import TagModel, Tags
 from open_webui.models.folders import Folders
 
