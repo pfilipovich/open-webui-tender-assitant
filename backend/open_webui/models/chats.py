@@ -355,6 +355,25 @@ class ChatTable:
         except Exception:
             return None
 
+    def toggle_chat_group_pin_by_id(self, id: str, group_id: str) -> Optional[ChatModel]:
+        try:
+            with get_db() as db:
+                chat = db.get(Chat, id)
+                meta = chat.meta or {}
+                pinned_groups = meta.get("pinned_groups", [])
+                if group_id in pinned_groups:
+                    pinned_groups.remove(group_id)
+                else:
+                    pinned_groups.append(group_id)
+                meta["pinned_groups"] = pinned_groups
+                chat.meta = meta
+                chat.updated_at = int(time.time())
+                db.commit()
+                db.refresh(chat)
+                return ChatModel.model_validate(chat)
+        except Exception:
+            return None
+
     def toggle_chat_archive_by_id(self, id: str) -> Optional[ChatModel]:
         try:
             with get_db() as db:
@@ -559,6 +578,58 @@ class ChatTable:
                 .order_by(Chat.updated_at.desc())
             )
             return [ChatModel.model_validate(chat) for chat in all_chats]
+
+    def get_group_pinned_chats_by_group_ids(self, group_ids: list[str]) -> list[ChatModel]:
+        if not group_ids:
+            return []
+
+        with get_db() as db:
+            dialect_name = db.bind.dialect.name
+            if dialect_name == "sqlite":
+                condition = or_(
+                    *[
+                        text(
+                            """
+                            EXISTS (
+                                SELECT 1 FROM json_each(Chat.meta, '$.pinned_groups') AS pg
+                                WHERE pg.value = :gid_{idx}
+                            )
+                            """
+                        ).params(**{f"gid_{idx}": gid})
+                        for idx, gid in enumerate(group_ids)
+                    ]
+                )
+            elif dialect_name == "postgresql":
+                condition = or_(
+                    *[
+                        text(
+                            """
+                            EXISTS (
+                                SELECT 1 FROM json_array_elements_text(Chat.meta->'pinned_groups') AS pg
+                                WHERE pg = :gid_{idx}
+                            )
+                            """
+                        ).params(**{f"gid_{idx}": gid})
+                        for idx, gid in enumerate(group_ids)
+                    ]
+                )
+            else:
+                raise NotImplementedError(f"Unsupported dialect: {db.bind.dialect.name}")
+
+            all_chats = (
+                db.query(Chat)
+                .filter(condition)
+                .filter_by(archived=False)
+                .order_by(Chat.updated_at.desc())
+                .all()
+            )
+            return [ChatModel.model_validate(chat) for chat in all_chats]
+
+    def get_chat_pinned_groups_by_id(self, id: str) -> list[str]:
+        chat = self.get_chat_by_id(id)
+        if chat:
+            return chat.meta.get("pinned_groups", [])
+        return []
 
     def get_archived_chats_by_user_id(self, user_id: str) -> list[ChatModel]:
         with get_db() as db:

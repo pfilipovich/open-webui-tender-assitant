@@ -213,10 +213,15 @@ async def get_chats_by_folder_id(folder_id: str, user=Depends(get_verified_user)
 
 @router.get("/pinned", response_model=list[ChatTitleIdResponse])
 async def get_user_pinned_chats(user=Depends(get_verified_user)):
-    return [
-        ChatTitleIdResponse(**chat.model_dump())
-        for chat in Chats.get_pinned_chats_by_user_id(user.id)
-    ]
+    user_pinned = Chats.get_pinned_chats_by_user_id(user.id)
+
+    groups = Groups.get_groups_by_member_id(user.id)
+    group_ids = [group.id for group in groups]
+    group_pinned = Chats.get_group_pinned_chats_by_group_ids(group_ids)
+
+    chats = {chat.id: chat for chat in [*user_pinned, *group_pinned]}.values()
+
+    return [ChatTitleIdResponse(**chat.model_dump()) for chat in chats]
 
 
 ############################
@@ -570,6 +575,17 @@ async def get_pinned_status_by_id(id: str, user=Depends(get_verified_user)):
         )
 
 
+@router.get("/{id}/pinned/groups", response_model=list[str])
+async def get_pinned_groups_by_id(id: str, user=Depends(get_verified_user)):
+    chat = Chats.get_chat_by_id(id)
+    if chat:
+        return chat.meta.get("pinned_groups", [])
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail=ERROR_MESSAGES.DEFAULT()
+        )
+
+
 ############################
 # PinChatById
 ############################
@@ -580,6 +596,18 @@ async def pin_chat_by_id(id: str, user=Depends(get_verified_user)):
     chat = Chats.get_chat_by_id_and_user_id(id, user.id)
     if chat:
         chat = Chats.toggle_chat_pinned_by_id(id)
+        return chat
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail=ERROR_MESSAGES.DEFAULT()
+        )
+
+
+@router.post("/{id}/pin/group/{group_id}", response_model=Optional[ChatResponse])
+async def pin_chat_by_group(id: str, group_id: str, user=Depends(get_admin_user)):
+    chat = Chats.get_chat_by_id(id)
+    if chat:
+        chat = Chats.toggle_chat_group_pin_by_id(id, group_id)
         return chat
     else:
         raise HTTPException(
