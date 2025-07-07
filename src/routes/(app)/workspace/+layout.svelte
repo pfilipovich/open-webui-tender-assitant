@@ -6,11 +6,12 @@
 		functions,
 		user,
 		mobile,
-		models,
-		prompts,
-		knowledge,
-		tools
-	} from '$lib/stores';
+               models,
+               prompts,
+               knowledge,
+               checklists,
+               tools
+        } from '$lib/stores';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 
@@ -29,15 +30,20 @@
 				!$user?.permissions?.workspace?.knowledge
 			) {
 				goto('/');
-			} else if (
-				$page.url.pathname.includes('/prompts') &&
-				!$user?.permissions?.workspace?.prompts
-			) {
-				goto('/');
-			} else if ($page.url.pathname.includes('/tools') && !$user?.permissions?.workspace?.tools) {
-				goto('/');
-			}
-		}
+                       } else if (
+                               $page.url.pathname.includes('/prompts') &&
+                               !$user?.permissions?.workspace?.prompts
+                        ) {
+                                goto('/');
+                        } else if (
+                                $page.url.pathname.includes('/checklists') &&
+                                !$user?.permissions?.workspace?.checklists
+                        ) {
+                                goto('/');
+                        } else if ($page.url.pathname.includes('/tools') && !$user?.permissions?.workspace?.tools) {
+                                goto('/');
+                        }
+                }
 
 		loaded = true;
 	});
@@ -101,15 +107,23 @@
 						{/if}
 
 						{#if $user?.role === 'admin' || $user?.permissions?.workspace?.prompts}
-							<a
-								class="min-w-fit rounded-full p-1.5 {$page.url.pathname.includes(
-									'/workspace/prompts'
-								)
-									? ''
-									: 'text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'} transition"
-								href="/workspace/prompts">{$i18n.t('Prompts')}</a
-							>
-						{/if}
+                                                <a
+                                                        class="min-w-fit rounded-full p-1.5 {$page.url.pathname.includes('/workspace/prompts')
+                                                                        ? ''
+                                                                        : 'text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'} transition"
+                                                        href="/workspace/prompts">{$i18n.t('Prompts')}</a>
+                                                {/if}
+
+                                                {#if $user?.role === 'admin' || $user?.permissions?.workspace?.checklists}
+                                                        <a
+                                                                class="min-w-fit rounded-full p-1.5 {$page.url.pathname.includes('/workspace/checklists')
+                                                                        ? ''
+                                                                        : 'text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'} transition"
+                                                                href="/workspace/checklists"
+                                                        >
+                                                                {$i18n.t('Checklists')}
+                                                        </a>
+                                                {/if}
 
 						{#if $user?.role === 'admin' || $user?.permissions?.workspace?.tools}
 							<a
