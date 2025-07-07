@@ -126,8 +126,9 @@
 	let webSearchEnabled = false;
 	let codeInterpreterEnabled = false;
 
-	let chat = null;
-	let tags = [];
+        let chat = null;
+        let tags = [];
+        let readOnly = false;
 
 	let history = {
 		messages: {},
@@ -863,10 +864,14 @@
 			temporaryChatEnabled.set(false);
 		}
 
-		chat = await getChatById(localStorage.token, $chatId).catch(async (error) => {
-			await goto('/');
-			return null;
-		});
+                chat = await getChatById(localStorage.token, $chatId).catch(async (error) => {
+                        await goto('/');
+                        return null;
+                });
+
+                if (chat) {
+                        readOnly = chat.user_id !== $user?.id;
+                }
 
 		if (chat) {
 			tags = await getTagsById(localStorage.token, $chatId).catch(async (error) => {
@@ -2079,45 +2084,47 @@
 								}}
 							>
 								<div class=" h-full w-full flex flex-col">
-									<Messages
-										chatId={$chatId}
-										bind:history
-										bind:autoScroll
-										bind:prompt
-										{selectedModels}
-										{atSelectedModel}
-										{sendPrompt}
-										{showMessage}
-										{submitMessage}
-										{continueResponse}
-										{regenerateResponse}
-										{mergeResponses}
-										{chatActionHandler}
-										{addMessages}
-										bottomPadding={files.length > 0}
-									/>
+                                                                        <Messages
+                                                                                chatId={$chatId}
+                                                                                bind:history
+                                                                                bind:autoScroll
+                                                                                bind:prompt
+                                                                                {selectedModels}
+                                                                                {atSelectedModel}
+                                                                                {sendPrompt}
+                                                                                {showMessage}
+                                                                                {submitMessage}
+                                                                                {continueResponse}
+                                                                                {regenerateResponse}
+                                                                                {mergeResponses}
+                                                                                {chatActionHandler}
+                                                                                {addMessages}
+                                                                                bottomPadding={files.length > 0}
+                                                                                {readOnly}
+                                                                        />
 								</div>
 							</div>
 
 							<div class=" pb-2">
-								<MessageInput
-									{history}
-									{taskIds}
-									{selectedModels}
-									bind:files
-									bind:prompt
-									bind:autoScroll
-									bind:selectedToolIds
-									bind:selectedFilterIds
-									bind:imageGenerationEnabled
-									bind:codeInterpreterEnabled
-									bind:webSearchEnabled
-									bind:atSelectedModel
-									toolServers={$toolServers}
-									transparentBackground={$settings?.backgroundImageUrl ?? false}
-									{stopResponse}
-									{createMessagePair}
-									onChange={(input) => {
+                                                                <MessageInput
+                                                                        {history}
+                                                                        {taskIds}
+                                                                        {selectedModels}
+                                                                        bind:files
+                                                                        bind:prompt
+                                                                        bind:autoScroll
+                                                                        bind:selectedToolIds
+                                                                        bind:selectedFilterIds
+                                                                        bind:imageGenerationEnabled
+                                                                        bind:codeInterpreterEnabled
+                                                                        bind:webSearchEnabled
+                                                                        bind:atSelectedModel
+                                                                        toolServers={$toolServers}
+                                                                        transparentBackground={$settings?.backgroundImageUrl ?? false}
+                                                                        {stopResponse}
+                                                                        {createMessagePair}
+                                                                        {readOnly}
+                                                                        onChange={(input) => {
 										if (!$temporaryChatEnabled) {
 											if (input.prompt !== null) {
 												localStorage.setItem(

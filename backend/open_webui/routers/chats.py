@@ -13,6 +13,7 @@ from open_webui.models.chats import (
 )
 from open_webui.models.tags import TagModel, Tags
 from open_webui.models.folders import Folders
+from open_webui.models.groups import Groups
 
 from open_webui.config import ENABLE_ADMIN_CHAT_ACCESS, ENABLE_ADMIN_EXPORT
 from open_webui.constants import ERROR_MESSAGES
@@ -213,10 +214,15 @@ async def get_chats_by_folder_id(folder_id: str, user=Depends(get_verified_user)
 
 @router.get("/pinned", response_model=list[ChatTitleIdResponse])
 async def get_user_pinned_chats(user=Depends(get_verified_user)):
-    return [
-        ChatTitleIdResponse(**chat.model_dump())
-        for chat in Chats.get_pinned_chats_by_user_id(user.id)
-    ]
+    user_pinned = Chats.get_pinned_chats_by_user_id(user.id)
+
+    groups = Groups.get_groups_by_member_id(user.id)
+    group_ids = [group.id for group in groups]
+    group_pinned = Chats.get_group_pinned_chats_by_group_ids(group_ids)
+
+    chats = {chat.id: chat for chat in [*user_pinned, *group_pinned]}.values()
+
+    return [ChatTitleIdResponse(**chat.model_dump()) for chat in chats]
 
 
 ############################
@@ -389,9 +395,18 @@ async def get_user_chat_list_by_tag_name(
 async def get_chat_by_id(id: str, user=Depends(get_verified_user)):
     chat = Chats.get_chat_by_id_and_user_id(id, user.id)
 
+    if not chat:
+        # If chat not owned by user, check if it is pinned to a group the user belongs to
+        chat = Chats.get_chat_by_id(id)
+        if chat:
+            groups = Groups.get_groups_by_member_id(user.id)
+            group_ids = [group.id for group in groups]
+            pinned_groups = chat.meta.get("pinned_groups", [])
+            if not any(gid in pinned_groups for gid in group_ids):
+                chat = None
+
     if chat:
         return ChatResponse(**chat.model_dump())
-
     else:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail=ERROR_MESSAGES.NOT_FOUND
@@ -570,6 +585,17 @@ async def get_pinned_status_by_id(id: str, user=Depends(get_verified_user)):
         )
 
 
+@router.get("/{id}/pinned/groups", response_model=list[str])
+async def get_pinned_groups_by_id(id: str, user=Depends(get_verified_user)):
+    chat = Chats.get_chat_by_id(id)
+    if chat:
+        return chat.meta.get("pinned_groups", [])
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail=ERROR_MESSAGES.DEFAULT()
+        )
+
+
 ############################
 # PinChatById
 ############################
@@ -580,6 +606,18 @@ async def pin_chat_by_id(id: str, user=Depends(get_verified_user)):
     chat = Chats.get_chat_by_id_and_user_id(id, user.id)
     if chat:
         chat = Chats.toggle_chat_pinned_by_id(id)
+        return chat
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail=ERROR_MESSAGES.DEFAULT()
+        )
+
+
+@router.post("/{id}/pin/group/{group_id}", response_model=Optional[ChatResponse])
+async def pin_chat_by_group(id: str, group_id: str, user=Depends(get_admin_user)):
+    chat = Chats.get_chat_by_id(id)
+    if chat:
+        chat = Chats.toggle_chat_group_pin_by_id(id, group_id)
         return chat
     else:
         raise HTTPException(

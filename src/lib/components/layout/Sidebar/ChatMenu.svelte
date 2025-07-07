@@ -21,11 +21,16 @@
 	import DocumentDuplicate from '$lib/components/icons/DocumentDuplicate.svelte';
 	import Bookmark from '$lib/components/icons/Bookmark.svelte';
 	import BookmarkSlash from '$lib/components/icons/BookmarkSlash.svelte';
-	import {
-		getChatById,
-		getChatPinnedStatusById,
-		toggleChatPinnedStatusById
-	} from '$lib/apis/chats';
+        import {
+                getChatById,
+                getChatPinnedStatusById,
+                getChatPinnedGroupsById,
+                toggleChatPinnedStatusById,
+                toggleChatPinnedGroupStatusById
+        } from '$lib/apis/chats';
+        import { getGroups } from '$lib/apis/groups';
+        import GlobeAlt from '$lib/components/icons/GlobeAlt.svelte';
+        import Check from '$lib/components/icons/Check.svelte';
 	import { chats, settings, theme, user } from '$lib/stores';
 	import { createMessagesList } from '$lib/utils';
 	import { downloadChatAsPDF } from '$lib/apis/utils';
@@ -42,17 +47,33 @@
 
 	export let chatId = '';
 
-	let show = false;
-	let pinned = false;
+        let show = false;
+        let pinned = false;
+        let groups = [];
+        let pinnedGroups: string[] = [];
 
-	const pinHandler = async () => {
-		await toggleChatPinnedStatusById(localStorage.token, chatId);
-		dispatch('change');
-	};
+        const pinHandler = async () => {
+                await toggleChatPinnedStatusById(localStorage.token, chatId);
+                dispatch('change');
+        };
 
-	const checkPinned = async () => {
-		pinned = await getChatPinnedStatusById(localStorage.token, chatId);
-	};
+        const checkPinned = async () => {
+                pinned = await getChatPinnedStatusById(localStorage.token, chatId);
+        };
+
+        const loadGroups = async () => {
+                groups = await getGroups(localStorage.token);
+        };
+
+        const checkPinnedGroups = async () => {
+                pinnedGroups = await getChatPinnedGroupsById(localStorage.token, chatId);
+        };
+
+        const toggleGroupPin = async (groupId) => {
+                await toggleChatPinnedGroupStatusById(localStorage.token, chatId, groupId);
+                pinnedGroups = await getChatPinnedGroupsById(localStorage.token, chatId);
+                dispatch('change');
+        };
 
 	const getChatAsText = async (chat) => {
 		const history = chat.chat.history;
@@ -213,9 +234,11 @@
 		}
 	};
 
-	$: if (show) {
-		checkPinned();
-	}
+        $: if (show) {
+                checkPinned();
+                checkPinnedGroups();
+                loadGroups();
+        }
 </script>
 
 <Dropdown
@@ -238,20 +261,48 @@
 			align="start"
 			transition={flyAndScale}
 		>
-			<DropdownMenu.Item
-				class="flex gap-2 items-center px-3 py-1.5 text-sm  cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-md"
-				on:click={() => {
-					pinHandler();
-				}}
-			>
-				{#if pinned}
-					<BookmarkSlash strokeWidth="2" />
-					<div class="flex items-center">{$i18n.t('Unpin')}</div>
-				{:else}
-					<Bookmark strokeWidth="2" />
-					<div class="flex items-center">{$i18n.t('Pin')}</div>
-				{/if}
-			</DropdownMenu.Item>
+                        <DropdownMenu.Item
+                                class="flex gap-2 items-center px-3 py-1.5 text-sm  cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-md"
+                                on:click={() => {
+                                        pinHandler();
+                                }}
+                        >
+                                {#if pinned}
+                                        <BookmarkSlash strokeWidth="2" />
+                                        <div class="flex items-center">{$i18n.t('Unpin')}</div>
+                                {:else}
+                                        <Bookmark strokeWidth="2" />
+                                        <div class="flex items-center">{$i18n.t('Pin')}</div>
+                                {/if}
+                        </DropdownMenu.Item>
+
+                        <DropdownMenu.Sub>
+                                <DropdownMenu.SubTrigger
+                                        class="flex gap-2 items-center px-3 py-1.5 text-sm  cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-md"
+                                >
+                                        <GlobeAlt strokeWidth="2" />
+                                        <div class="flex items-center">{$i18n.t('Pin Globally')}</div>
+                                </DropdownMenu.SubTrigger>
+                                <DropdownMenu.SubContent
+                                        class="w-full rounded-xl px-1 py-1.5 z-50 bg-white dark:bg-gray-850 dark:text-white shadow-lg"
+                                        transition={flyAndScale}
+                                        sideOffset={8}
+                                >
+                                        {#each groups as group}
+                                                <DropdownMenu.Item
+                                                        class="flex gap-2 items-center px-3 py-1.5 text-sm  cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-md"
+                                                        on:click={() => {
+                                                                toggleGroupPin(group.id);
+                                                        }}
+                                                >
+                                                        <div class="flex items-center flex-1">{group.name}</div>
+                                                        {#if pinnedGroups.includes(group.id)}
+                                                                <Check class="w-4 h-4" />
+                                                        {/if}
+                                                </DropdownMenu.Item>
+                                        {/each}
+                                </DropdownMenu.SubContent>
+                        </DropdownMenu.Sub>
 
 			<DropdownMenu.Item
 				class="flex gap-2 items-center px-3 py-1.5 text-sm  cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-md"
