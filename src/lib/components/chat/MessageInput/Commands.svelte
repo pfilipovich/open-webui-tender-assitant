@@ -4,15 +4,17 @@
 
 	const dispatch = createEventDispatcher();
 
-	import { knowledge, prompts } from '$lib/stores';
+	import { knowledge, prompts, checklists } from '$lib/stores';
 
 	import { removeLastWordFromString } from '$lib/utils';
 	import { getPrompts } from '$lib/apis/prompts';
 	import { getKnowledgeBases } from '$lib/apis/knowledge';
+	import { getChecklists } from '$lib/apis/checklists';
 
 	import Prompts from './Commands/Prompts.svelte';
 	import Knowledge from './Commands/Knowledge.svelte';
 	import Models from './Commands/Models.svelte';
+	import Checklists from './Commands/Checklists.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 
 	export let prompt = '';
@@ -33,9 +35,10 @@
 	$: command = prompt?.split('\n').pop()?.split(' ')?.pop() ?? '';
 
         let show = false;
-        $: show = ['/', '#', '@', '&'].includes(command?.charAt(0)) ||
+        $: show = ['/', '#', '@', '&', '%'].includes(command?.charAt(0)) ||
                 '\\#' === command.slice(0, 2) ||
-                '\\&' === command.slice(0, 2);
+                '\\&' === command.slice(0, 2) ||
+                '\\%' === command.slice(0, 2);
 
 	$: if (show) {
 		init();
@@ -49,6 +52,9 @@
 			})(),
 			(async () => {
 				knowledge.set(await getKnowledgeBases(localStorage.token));
+			})(),
+			(async () => {
+				checklists.set(await getChecklists(localStorage.token));
 			})()
 		]);
 		loading = false;
@@ -115,6 +121,19 @@
                                         ];
 
                                         dispatch('select');
+                                }}
+                        />
+                {:else if (command?.charAt(0) === '%' && command.startsWith('%') && !command.includes('% ')) || ('\\%' === command.slice(0, 2) && command.startsWith('%') && !command.includes('% '))}
+                        <Checklists 
+                                bind:this={commandElement} 
+                                bind:prompt
+                                bind:files
+                                command={command.includes('\\%') ? command.slice(2) : command}
+                                on:execute={(e) => {
+                                        dispatch('execute', {
+                                                type: 'checklist',
+                                                data: e.detail
+                                        });
                                 }}
                         />
                 {:else if command?.charAt(0) === '@'}

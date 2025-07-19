@@ -3,6 +3,7 @@ import { type Writable, writable } from 'svelte/store';
 import type { ModelConfig } from '$lib/apis';
 import type { Banner } from '$lib/types';
 import type { Socket } from 'socket.io-client';
+import type { ChecklistUserResponse } from '$lib/apis/checklists';
 
 import emojiShortCodes from '$lib/emoji-shortcodes.json';
 
@@ -55,6 +56,7 @@ export const models: Writable<Model[]> = writable([]);
 
 export const prompts: Writable<null | Prompt[]> = writable(null);
 export const knowledge: Writable<null | Document[]> = writable(null);
+export const checklists: Writable<ChecklistUserResponse[]> = writable([]);
 export const tools = writable(null);
 export const functions = writable(null);
 
