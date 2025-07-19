@@ -9,6 +9,9 @@ This document provides step-by-step implementation instructions for adding a **C
 Before starting, verify the development environment:
 
 ```bash
+# IMPORTANT: Activate Python virtual environment first
+source /mnt/d/venv/tender_assistant_wsl/bin/activate
+
 # Verify backend development setup
 cd backend && python -c "import open_webui; print('Backend OK')"
 
@@ -21,6 +24,17 @@ cd backend && python -c "from open_webui.internal.db import get_db; print('Datab
 # Verify existing prompts functionality
 ls backend/open_webui/models/prompts.py
 ls src/lib/components/chat/MessageInput/Commands/Prompts.svelte
+```
+
+### Virtual Environment Setup
+**CRITICAL**: All backend Python commands in this plan require the virtual environment to be activated:
+
+```bash
+# Always run this first before any backend operations
+source /mnt/d/venv/tender_assistant_wsl/bin/activate
+
+# Verify virtual environment is active (should show the venv path)
+which python
 ```
 
 ## Implementation Steps
@@ -235,6 +249,9 @@ Checklists = ChecklistsTable()
 **1.2 Test the model**
 
 ```bash
+# Activate virtual environment
+source /mnt/d/venv/tender_assistant_wsl/bin/activate
+
 cd backend
 python -c "
 from open_webui.models.checklists import Checklists, ChecklistForm
@@ -309,6 +326,9 @@ def downgrade():
 **2.2 Run migration**
 
 ```bash
+# Activate virtual environment
+source /mnt/d/venv/tender_assistant_wsl/bin/activate
+
 cd backend
 # First, find the latest revision
 python -c "
