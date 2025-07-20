@@ -6,8 +6,8 @@ from open_webui.models.checklists import (
     ChecklistUserResponse,
     ChecklistForm
 )
-from open_webui.models.auths import get_current_user, User
-from open_webui.utils.utils import get_admin_user
+from open_webui.utils.auth import get_current_user, get_admin_user
+from open_webui.models.users import User
 
 router = APIRouter()
 

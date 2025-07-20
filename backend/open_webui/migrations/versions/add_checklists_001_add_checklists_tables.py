@@ -11,7 +11,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers
 revision = 'add_checklists_001'
-down_revision = 'ca81bd47c050'
+down_revision = '9f0c9cd09105'
 branch_labels = None
 depends_on = None
 
