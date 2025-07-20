@@ -1,15 +1,14 @@
 <script lang="ts">
 	import { toast } from 'svelte-sonner';
+
 	import { goto } from '$app/navigation';
-	import { onMount } from 'svelte';
+	import { onMount, getContext } from 'svelte';
 	import { WEBUI_NAME, checklists as _checklists, user } from '$lib/stores';
-	import i18n from '$lib/i18n'; // Import i18n store directly
 
 	import {
 		getChecklistList,
 		deleteChecklistByCommand
 	} from '$lib/apis/checklists';
-	import type { ChecklistUserResponse } from '$lib/apis/checklists';
 
 	import EllipsisHorizontal from '../icons/EllipsisHorizontal.svelte';
 	import DeleteConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
@@ -17,13 +16,18 @@
 	import Plus from '../icons/Plus.svelte';
 	import Spinner from '../common/Spinner.svelte';
 	import Tooltip from '../common/Tooltip.svelte';
+	import { capitalizeFirstLetter } from '$lib/utils';
 	import XMark from '../icons/XMark.svelte';
 
+	const i18n = getContext('i18n');
 	let loaded = false;
+
 	let query = '';
-	let checklists: ChecklistUserResponse[] = [];
+
+	let checklists = [];
+
 	let showDeleteConfirm = false;
-	let deleteChecklistItem = null;
+	let deleteChecklist = null;
 
 	let filteredItems = [];
 	$: filteredItems = checklists.filter((c) => {
@@ -32,7 +36,6 @@
 		return (
 			(c.title || '').toLowerCase().includes(lowerQuery) ||
 			(c.command || '').toLowerCase().includes(lowerQuery) ||
-			(c.description || '').toLowerCase().includes(lowerQuery) ||
 			(c.user?.name || '').toLowerCase().includes(lowerQuery) ||
 			(c.user?.email || '').toLowerCase().includes(lowerQuery)
 		);
@@ -57,27 +60,27 @@
 
 <svelte:head>
 	<title>
-		{$i18n.t('Checklists')} • {$WEBUI_NAME}
+		{$i18n?.t?.('Checklists') || 'Checklists'} • {$WEBUI_NAME}
 	</title>
 </svelte:head>
 
 {#if loaded}
 	<DeleteConfirmDialog
 		bind:show={showDeleteConfirm}
-		title={$i18n.t('Delete checklist?')}
+		title={$i18n?.t?.('Delete checklist?') || 'Delete checklist?'}
 		on:confirm={() => {
-			deleteHandler(deleteChecklistItem);
+			deleteHandler(deleteChecklist);
 		}}
 	>
 		<div class=" text-sm text-gray-500">
-			{$i18n.t('This will delete')} <span class="  font-semibold">{deleteChecklistItem?.command}</span>.
+			{$i18n?.t?.('This will delete') || 'This will delete'} <span class="  font-semibold">{deleteChecklist?.command}</span>.
 		</div>
 	</DeleteConfirmDialog>
 
 	<div class="flex flex-col gap-1 my-1.5">
 		<div class="flex justify-between items-center">
 			<div class="flex md:self-center text-xl font-medium px-0.5 items-center">
-				{$i18n.t('Checklists')}
+				{$i18n?.t?.('Checklists') || 'Checklists'}
 				<div class="flex self-center w-[1px] h-6 mx-2.5 bg-gray-50 dark:bg-gray-850" />
 				<span class="text-lg font-medium text-gray-500 dark:text-gray-300"
 					>{filteredItems.length}</span
@@ -93,7 +96,7 @@
 				<input
 					class=" w-full text-sm pr-4 py-1 rounded-r-xl outline-hidden bg-transparent"
 					bind:value={query}
-					placeholder={$i18n.t('Search Checklists')}
+					placeholder={$i18n?.t?.('Search Checklists') || 'Search Checklists'}
 				/>
 
 				{#if query}
@@ -137,14 +140,14 @@
 
 						<div class=" text-xs px-0.5">
 							<Tooltip
-								content={checklist?.user?.email ?? $i18n.t('Deleted User')}
+								content={checklist?.user?.email ?? ($i18n?.t?.('Deleted User') || 'Deleted User')}
 								className="flex shrink-0"
 								placement="top-start"
 							>
 								<div class="shrink-0 text-gray-500">
-									{$i18n.t('By {{name}}', {
-										name: checklist?.user?.name ?? checklist?.user?.email ?? $i18n.t('Deleted User')
-									})}
+									{($i18n?.t?.('By') || 'By')} {capitalizeFirstLetter(
+										checklist?.user?.name ?? checklist?.user?.email ?? ($i18n?.t?.('Deleted User') || 'Deleted User')
+									)}
 								</div>
 							</Tooltip>
 						</div>
@@ -176,7 +179,7 @@
 						class="self-center w-fit text-sm p-1.5 dark:text-gray-300 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5 rounded-xl"
 						type="button"
 						on:click={() => {
-							deleteChecklistItem = checklist;
+							deleteChecklist = checklist;
 							showDeleteConfirm = true;
 						}}
 					>
@@ -205,16 +208,16 @@
 				</svg>
 			</div>
 			<div class="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">
-				{$i18n.t('No checklists found')}
+				{$i18n?.t?.('No checklists found') || 'No checklists found'}
 			</div>
 			<div class="text-sm text-gray-500 dark:text-gray-400 mb-4">
-				{$i18n.t('Create your first checklist to get started')}
+				{$i18n?.t?.('Create your first checklist to get started') || 'Create your first checklist to get started'}
 			</div>
 			<a
 				href="/workspace/checklists/create"
 				class="px-4 py-2 bg-black dark:bg-white text-white dark:text-black rounded-xl hover:bg-gray-800 dark:hover:bg-gray-200 transition"
 			>
-				{$i18n.t('Create Checklist')}
+				{$i18n?.t?.('Create Checklist') || 'Create Checklist'}
 			</a>
 		</div>
 	{/if}
