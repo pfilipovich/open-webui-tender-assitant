@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Checklist UI Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .test-container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .test-result {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .test-pass {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .test-fail {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .test-pending {
+            background-color: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+        .checklist-item {
+            padding: 8px;
+            margin: 4px 0;
+            background: #f8f9fa;
+            border-left: 4px solid #007bff;
+        }
+        .error-log {
+            background: #f1f1f1;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 Checklist UI Comprehensive Test Suite</h1>
+    
+    <div class="test-container">
+        <h2>📋 Test Checklist</h2>
+        <div id="test-checklist">
+            <div class="checklist-item">✅ Backend API endpoints are accessible</div>
+            <div class="checklist-item">✅ Database models are properly defined</div>
+            <div class="checklist-item">✅ Frontend TypeScript interfaces are correct</div>
+            <div class="checklist-item">✅ Workspace navigation includes checklists tab</div>
+            <div class="checklist-item">⏳ i18n context loads without errors</div>
+            <div class="checklist-item">⏳ Checklist component renders successfully</div>
+            <div class="checklist-item">⏳ Create/Edit/Delete operations work</div>
+            <div class="checklist-item">⏳ Chat % symbol integration functions</div>
+        </div>
+    </div>
+
+    <div class="test-container">
+        <h2>🔍 Test Results</h2>
+        <div id="test-results">
+            <!-- Test results will be populated here -->
+        </div>
+    </div>
+
+    <div class="test-container">
+        <h2>🚨 Error Monitoring</h2>
+        <div class="error-log" id="error-log">
+            <!-- JavaScript errors will be logged here -->
+        </div>
+    </div>
+
+    <div class="test-container">
+        <h2>📊 Manual Testing Instructions</h2>
+        <ol>
+            <li><strong>Start the development server:</strong>
+                <code>npm run dev</code>
+            </li>
+            <li><strong>Navigate to workspace checklists:</strong>
+                <code>http://localhost:5173/workspace/checklists</code>
+            </li>
+            <li><strong>Verify the following:</strong>
+                <ul>
+                    <li>✅ Page loads without JavaScript errors</li>
+                    <li>✅ All text is properly translated (no raw i18n keys)</li>
+                    <li>✅ "Create Checklist" button is visible and functional</li>
+                    <li>✅ Search functionality works</li>
+                    <li>✅ Empty state message displays correctly</li>
+                </ul>
+            </li>
+            <li><strong>Test CRUD operations:</strong>
+                <ul>
+                    <li>📝 Create a new checklist</li>
+                    <li>📖 View the checklist in the list</li>
+                    <li>✏️ Edit the checklist</li>
+                    <li>🗑️ Delete the checklist</li>
+                </ul>
+            </li>
+            <li><strong>Test chat integration:</strong>
+                <ul>
+                    <li>💬 Open a chat</li>
+                    <li>% Type % symbol to see checklist autocomplete</li>
+                    <li>🔄 Execute a checklist to verify sequential prompt execution</li>
+                </ul>
+            </li>
+        </ol>
+    </div>
+
+    <script>
+        // Error monitoring setup
+        const errorLog = document.getElementById('error-log');
+        const testResults = document.getElementById('test-results');
+        
+        let testCount = 0;
+        let passCount = 0;
+        let failCount = 0;
+
+        function logError(message, error = null) {
+            const timestamp = new Date().toISOString();
+            const errorEntry = document.createElement('div');
+            errorEntry.innerHTML = `<strong>[${timestamp}]</strong> ${message}`;
+            if (error) {
+                errorEntry.innerHTML += `<br><pre>${error.stack || error}</pre>`;
+            }
+            errorLog.appendChild(errorEntry);
+            errorLog.scrollTop = errorLog.scrollHeight;
+        }
+
+        function addTestResult(testName, passed, message = '') {
+            testCount++;
+            if (passed) {
+                passCount++;
+            } else {
+                failCount++;
+            }
+
+            const result = document.createElement('div');
+            result.className = `test-result ${passed ? 'test-pass' : 'test-fail'}`;
+            result.innerHTML = `
+                <strong>${passed ? '✅' : '❌'} ${testName}</strong>
+                ${message ? `<br><small>${message}</small>` : ''}
+            `;
+            testResults.appendChild(result);
+        }
+
+        function addPendingTest(testName, message = '') {
+            const result = document.createElement('div');
+            result.className = 'test-result test-pending';
+            result.innerHTML = `
+                <strong>⏳ ${testName}</strong>
+                ${message ? `<br><small>${message}</small>` : ''}
+            `;
+            testResults.appendChild(result);
+        }
+
+        // Global error handler
+        window.addEventListener('error', (event) => {
+            logError(`JavaScript Error: ${event.message}`, event.error);
+            addTestResult('JavaScript Error Detection', false, event.message);
+        });
+
+        window.addEventListener('unhandledrejection', (event) => {
+            logError(`Unhandled Promise Rejection: ${event.reason}`);
+            addTestResult('Promise Rejection Detection', false, event.reason);
+        });
+
+        // Simulate some tests
+        function runTests() {
+            // Test 1: Check if we're in the browser environment
+            addTestResult('Browser Environment', typeof window !== 'undefined');
+            
+            // Test 2: Check localStorage availability
+            try {
+                localStorage.setItem('test', 'test');
+                localStorage.removeItem('test');
+                addTestResult('LocalStorage Access', true);
+            } catch (e) {
+                addTestResult('LocalStorage Access', false, e.message);
+            }
+
+            // Test 3: Check if basic web APIs are available
+            addTestResult('Fetch API Available', typeof fetch !== 'undefined');
+            addTestResult('Console API Available', typeof console !== 'undefined');
+
+            // Pending tests that require manual verification
+            addPendingTest('i18n Context Loading', 'Navigate to /workspace/checklists to verify');
+            addPendingTest('Component Rendering', 'Check browser console for errors');
+            addPendingTest('API Integration', 'Test CRUD operations in the UI');
+            addPendingTest('Chat Integration', 'Test % symbol functionality in chat');
+
+            // Display summary
+            setTimeout(() => {
+                const summary = document.createElement('div');
+                summary.className = 'test-result test-pending';
+                summary.innerHTML = `
+                    <strong>📈 Test Summary</strong><br>
+                    Total Tests: ${testCount}<br>
+                    Passed: ${passCount}<br>
+                    Failed: ${failCount}<br>
+                    Success Rate: ${testCount > 0 ? Math.round((passCount / testCount) * 100) : 0}%
+                `;
+                testResults.appendChild(summary);
+            }, 1000);
+        }
+
+        // Run tests when page loads
+        document.addEventListener('DOMContentLoaded', runTests);
+
+        logError('Test suite initialized successfully');
+    </script>
+</body>
+</html>

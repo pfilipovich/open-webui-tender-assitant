@@ -48,7 +48,7 @@
             const fullChecklist = await getChecklistByCommand(localStorage.token, checklist.command);
             
             if (!fullChecklist || !fullChecklist.items || fullChecklist.items.length === 0) {
-                toast.error($i18n.t('Checklist has no prompts to execute'));
+                toast.error($i18n?.t?.('Checklist has no prompts to execute') || 'Checklist has no prompts to execute');
                 return;
             }
 
@@ -113,7 +113,7 @@
 
         } catch (error) {
             console.error('Error executing checklist:', error);
-            toast.error($i18n.t('Failed to execute checklist'));
+            toast.error($i18n?.t?.('Failed to execute checklist') || 'Failed to execute checklist');
         }
     };
 
@@ -240,7 +240,7 @@
                     </div>
 
                     <div class="line-clamp-1">
-                        {$i18n.t('Execute multiple prompts in sequence. Variables and context are preserved between prompts.')}
+                        {$i18n?.t?.('Execute multiple prompts in sequence. Variables and context are preserved between prompts.') || 'Execute multiple prompts in sequence. Variables and context are preserved between prompts.'}
                     </div>
                 </div>
             </div>
