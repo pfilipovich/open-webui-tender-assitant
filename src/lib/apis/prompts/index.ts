@@ -104,6 +104,9 @@ export const getPromptList = async (token: string = '') => {
 export const getPromptByCommand = async (token: string, command: string) => {
 	let error = null;
 
+	// Remove leading slash if present, since backend adds it automatically
+	command = command.charAt(0) === '/' ? command.slice(1) : command;
+
 	const res = await fetch(`${WEBUI_API_BASE_URL}/prompts/command/${command}`, {
 		method: 'GET',
 		headers: {

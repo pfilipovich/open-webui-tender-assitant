@@ -66,6 +66,7 @@
 		updateChatById
 	} from '$lib/apis/chats';
 	import { generateOpenAIChatCompletion } from '$lib/apis/openai';
+	import { getPromptByCommand } from '$lib/apis/prompts';
 	import { processWeb, processWebSearch, processYoutubeVideo } from '$lib/apis/retrieval';
 	import { createOpenAITextStream } from '$lib/apis/streaming';
 	import { queryMemory } from '$lib/apis/memories';
@@ -1549,6 +1550,199 @@
 		chats.set(await getChatList(localStorage.token, $currentChatPage));
 	};
 
+	const processChecklistsSequentially = async (checklistFiles, _history, responseMessageId, model) => {
+		const responseMessage = _history.messages[responseMessageId];
+		let aggregatedResults = [];
+
+		for (const checklistFile of checklistFiles) {
+			// Build markdown header for the checklist
+			let checklistResult = `# ${checklistFile.title || checklistFile.name}\n\n`;
+			if (checklistFile.description) {
+				checklistResult += `${checklistFile.description}\n\n---\n\n`;
+			}
+
+			// Sort checklist items by order_index
+			const sortedItems = (checklistFile.items || []).sort((a, b) => a.order_index - b.order_index);
+			let promptResults = [];
+
+			for (let i = 0; i < sortedItems.length; i++) {
+				const item = sortedItems[i];
+				
+				try {
+					console.log(`Executing prompt: ${item.prompt_command}`);
+					
+					// Get the prompt data
+					const promptData = await getPromptByCommand(localStorage.token, item.prompt_command);
+					
+					if (!promptData) {
+						console.warn(`Prompt not found: ${item.prompt_command}`);
+						const errorMsg = `❌ Prompt "${item.prompt_command}" not found. Create this prompt first or remove from checklist.`;
+						promptResults.push(`**${i + 1}. ${item.prompt_command}**\n\n${errorMsg}\n\n`);
+						continue;
+					}
+
+					console.log(`Found prompt: ${promptData.title} (${item.prompt_command})`);
+
+					// Process prompt content with variables (similar to the existing logic in Checklists.svelte)
+					let processedContent = await processPromptVariables(promptData.content);
+					
+					// Create a temporary message for this prompt execution
+					const promptMessageId = uuidv4();
+					const tempUserMessage = {
+						id: uuidv4(),
+						parentId: responseMessage.parentId,
+						childrenIds: [promptMessageId],
+						role: 'user',
+						content: processedContent,
+						timestamp: Date.now()
+					};
+					
+					const tempResponseMessage = {
+						id: promptMessageId,
+						parentId: tempUserMessage.id,
+						childrenIds: [],
+						role: 'assistant',
+						content: '',
+						timestamp: Date.now(),
+						model: model.id,
+						done: false
+					};
+
+					// Add temporary messages to history
+					_history.messages[tempUserMessage.id] = tempUserMessage;
+					_history.messages[promptMessageId] = tempResponseMessage;
+					
+					// Update UI to show progress
+					history = _history;
+					
+					// Execute the prompt using existing chat completion logic
+					await executePromptForChecklist(promptData.title, processedContent, promptMessageId, model, _history);
+					
+					// Get the response content
+					const responseContent = _history.messages[promptMessageId].content;
+					promptResults.push(`**${i + 1}. ${promptData.title}** (${item.prompt_command})\n\n${responseContent}\n\n---\n\n`);
+					
+				} catch (error) {
+					console.error('Error executing prompt:', item.prompt_command, error);
+					const errorMsg = `❌ Error executing "${item.prompt_command}": ${error.message}`;
+					promptResults.push(`**${i + 1}. ${item.prompt_command}**\n\n${errorMsg}\n\n`);
+				}
+			}
+
+			// Combine checklist header with all prompt results
+			checklistResult += promptResults.join('');
+			aggregatedResults.push(checklistResult);
+		}
+
+		// Update the response message with aggregated results
+		const finalResult = aggregatedResults.join('\n\n═══════════════════════════════════════\n\n');
+		_history.messages[responseMessageId].content = finalResult;
+		_history.messages[responseMessageId].done = true;
+		history = _history;
+		
+		scrollToBottom();
+		await tick();
+	};
+
+	const processPromptVariables = async (content) => {
+		let text = content;
+
+		// Standard variables (same as in Checklists.svelte)
+		if (text.includes('{{CLIPBOARD}}')) {
+			try {
+				const clipboardText = await navigator.clipboard.readText();
+				text = text.replaceAll('{{CLIPBOARD}}', clipboardText);
+			} catch {
+				text = text.replaceAll('{{CLIPBOARD}}', '');
+			}
+		}
+
+		if (text.includes('{{USER_NAME}}')) {
+			const name = $user?.name || 'User';
+			text = text.replaceAll('{{USER_NAME}}', name);
+		}
+
+		if (text.includes('{{USER_LANGUAGE}}')) {
+			const language = localStorage.getItem('locale') || 'en-US';
+			text = text.replaceAll('{{USER_LANGUAGE}}', language);
+		}
+
+		if (text.includes('{{CURRENT_DATE}}')) {
+			const date = new Date().toLocaleDateString();
+			text = text.replaceAll('{{CURRENT_DATE}}', date);
+		}
+
+		if (text.includes('{{CURRENT_TIME}}')) {
+			const time = new Date().toLocaleTimeString();
+			text = text.replaceAll('{{CURRENT_TIME}}', time);
+		}
+
+		if (text.includes('{{CURRENT_DATETIME}}')) {
+			const dateTime = new Date().toLocaleString();
+			text = text.replaceAll('{{CURRENT_DATETIME}}', dateTime);
+		}
+
+		if (text.includes('{{FILE_NAMES}}')) {
+			const fileNames = files.map(f => f.name || 'Unknown file').join(', ');
+			text = text.replaceAll('{{FILE_NAMES}}', fileNames);
+		}
+
+		return text;
+	};
+
+	const executePromptForChecklist = async (promptTitle, content, responseMessageId, model, _history) => {
+		// Create messages for this individual prompt execution
+		const messages = [
+			{
+				role: 'user',
+				content: content
+			}
+		];
+
+		// Use existing generateOpenAIChatCompletion but with streaming disabled for simplicity
+		const res = await generateOpenAIChatCompletion(
+			localStorage.token,
+			{
+				stream: false,
+				model: model.id,
+				messages: messages,
+				params: {
+					...$settings?.params
+				}
+			}
+		);
+
+		if (res && res.ok) {
+			const reader = res.body
+				.pipeThrough(new TextDecoderStream())
+				.pipeThrough(splitStream('\n'))
+				.getReader();
+
+			let content = '';
+			while (true) {
+				const { value, done } = await reader.read();
+				if (done) break;
+
+				try {
+					let lines = value.split('\n');
+					for (const line of lines) {
+						if (line !== '') {
+							let data = JSON.parse(line);
+							if (data.choices && data.choices[0] && data.choices[0].message) {
+								content = data.choices[0].message.content;
+							}
+						}
+					}
+				} catch (error) {
+					console.error('Error parsing response:', error);
+				}
+			}
+
+			// Update the response message
+			_history.messages[responseMessageId].content = content;
+		}
+	};
+
 	const sendPromptSocket = async (_history, model, responseMessageId, _chatId) => {
 		const chatMessages = createMessagesList(history, history.currentId);
 		const responseMessage = _history.messages[responseMessageId];
@@ -1576,6 +1770,13 @@
 			(item, index, array) =>
 				array.findIndex((i) => JSON.stringify(i) === JSON.stringify(item)) === index
 		);
+
+		// Check for checklist attachments and process them sequentially
+		const checklistFiles = (userMessage?.files ?? []).filter((item) => item.type === 'checklist');
+		if (checklistFiles.length > 0) {
+			await processChecklistsSequentially(checklistFiles, _history, responseMessageId, model);
+			return; // Exit early to prevent normal processing
+		}
 
 		scrollToBottom();
 		eventTarget.dispatchEvent(

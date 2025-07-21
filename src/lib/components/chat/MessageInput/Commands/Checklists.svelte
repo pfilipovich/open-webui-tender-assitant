@@ -24,9 +24,27 @@
     let selectedChecklistIdx = 0;
     let filteredChecklists = [];
 
-    $: filteredChecklists = $checklists
-        .filter((c) => c.command.toLowerCase().includes(command.toLowerCase()))
-        .sort((a, b) => a.title.localeCompare(b.title));
+    $: {
+        // Initialize as empty array if checklists is undefined or not an array
+        const checklistsArray = Array.isArray($checklists) ? $checklists : [];
+        
+        if (checklistsArray.length === 0) {
+            filteredChecklists = [];
+        } else {
+            filteredChecklists = checklistsArray
+                .filter((c) => {
+                    if (!c || typeof c !== 'object' || !c.command) {
+                        return false;
+                    }
+                    // If command is empty (just '$' typed), show all checklists
+                    if (!command || command.trim() === '') {
+                        return true;
+                    }
+                    return c.command.toLowerCase().includes(command.toLowerCase());
+                })
+                .sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+        }
+    }
 
     $: if (command) {
         selectedChecklistIdx = 0;
@@ -40,9 +58,48 @@
         selectedChecklistIdx = Math.min(selectedChecklistIdx + 1, filteredChecklists.length - 1);
     };
 
-    const executeChecklist = async (checklist) => {
-        console.log('Executing checklist:', checklist);
+    const executeChecklistAsAttachment = async (fullChecklist) => {
+        // Add checklist to files array as an attachment
+        const checklistAttachment = {
+            type: 'checklist',
+            id: fullChecklist.id,
+            command: fullChecklist.command,
+            name: fullChecklist.title, // Add name property for FileItem display
+            title: fullChecklist.title,
+            description: fullChecklist.description,
+            itemCount: fullChecklist.items?.length || 0,
+            items: fullChecklist.items,
+            status: 'attached'
+        };
         
+        files = [...files, checklistAttachment];
+        
+        // Clear the command from prompt
+        const lines = prompt.split('\n');
+        const lastLine = lines.pop();
+        const lastLineWords = lastLine.split(' ');
+        lastLineWords.pop(); // Remove the checklist command
+        
+        if ($settings?.richTextInput ?? true) {
+            lines.push(lastLineWords.join(' '));
+            prompt = lines.join('<br/>');
+        } else {
+            lines.push(lastLineWords.join(' '));
+            prompt = lines.join('\n');
+        }
+        
+        // Focus the chat input
+        await tick();
+        const chatInputElement = document.getElementById('chat-input');
+        if (chatInputElement) {
+            chatInputElement.focus();
+            chatInputElement.dispatchEvent(new Event('input'));
+        }
+        
+        toast.success(`Checklist "${fullChecklist.title}" attached. Send your message to process all ${fullChecklist.items?.length || 0} prompts.`);
+    };
+
+    const executeChecklist = async (checklist) => {
         try {
             // Get full checklist with items
             const fullChecklist = await getChecklistByCommand(localStorage.token, checklist.command);
@@ -52,25 +109,33 @@
                 return;
             }
 
-            // Sort items by order_index
-            const sortedItems = fullChecklist.items.sort((a, b) => a.order_index - b.order_index);
+            // Always use attachment mode for better UX
+            await executeChecklistAsAttachment(fullChecklist);
+            return;
             
+            // Legacy code kept for reference (never executed now)
             let aggregatedResponse = `# ${fullChecklist.title}\n\n`;
             if (fullChecklist.description) {
                 aggregatedResponse += `${fullChecklist.description}\n\n---\n\n`;
             }
-
-            // Execute each prompt in sequence
+            
+            // Legacy execution (keep for backward compatibility)
             for (let i = 0; i < sortedItems.length; i++) {
                 const item = sortedItems[i];
                 
                 try {
+                    console.log(`Attempting to find prompt: "${item.prompt_command}"`);
+                    
                     // Get the prompt
                     const promptData = await getPromptByCommand(localStorage.token, item.prompt_command);
+                    
                     if (!promptData) {
-                        aggregatedResponse += `**${i + 1}. ${item.prompt_command}** - ❌ Prompt not found\n\n`;
+                        console.warn(`Prompt not found: ${item.prompt_command}`);
+                        aggregatedResponse += `**${i + 1}. ${item.prompt_command}** - ❌ Prompt not found. Create this prompt first or remove from checklist.\n\n`;
                         continue;
                     }
+
+                    console.log(`Found prompt: ${promptData.title} (${item.prompt_command})`);
 
                     // Process prompt content with variables
                     let processedContent = await processPromptVariables(promptData.content, aggregatedResponse);
@@ -179,16 +244,16 @@
     };
 </script>
 
-{#if filteredChecklists.length > 0}
+{#if Array.isArray(filteredChecklists) && filteredChecklists.length > 0}
     <div
-        id="checklists-container"
+        id="commands-container"
         class="px-2 mb-2 text-left w-full absolute bottom-0 left-0 right-0 z-10"
     >
         <div class="flex w-full rounded-xl border border-gray-100 dark:border-gray-850">
             <div class="flex flex-col w-full rounded-xl bg-white dark:bg-gray-900 dark:text-gray-100">
                 <div
                     class="m-1 overflow-y-auto p-1 space-y-0.5 scrollbar-hidden max-h-60"
-                    id="checklist-options-container"
+                    id="command-options-container"
                 >
                     {#each filteredChecklists as checklist, checklistIdx}
                         <button
@@ -205,15 +270,15 @@
                             on:focus={() => {}}
                         >
                             <div class="font-medium text-black dark:text-gray-100 flex items-center">
-                                <span class="mr-2">%</span>
-                                {checklist.command}
+                                <span class="mr-2">$</span>
+                                {checklist.command || 'unnamed'}
                                 <span class="ml-auto text-xs text-gray-500">
                                     {checklist.items?.length || 0} prompts
                                 </span>
                             </div>
 
                             <div class="text-xs text-gray-600 dark:text-gray-100">
-                                {checklist.title}
+                                {checklist.title || 'Untitled Checklist'}
                             </div>
                         </button>
                     {/each}

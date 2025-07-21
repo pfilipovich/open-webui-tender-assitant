@@ -146,7 +146,7 @@
 						<div class=" flex-1 flex items-center gap-2 self-center">
 							<div class=" font-semibold line-clamp-1 capitalize">{checklist.title}</div>
 							<div class=" text-xs overflow-hidden text-ellipsis line-clamp-1">
-								%{checklist.command}
+								${checklist.command}
 							</div>
 						</div>
 

@@ -222,7 +222,7 @@
                             />
                         </div>
                         <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                            {$i18n.t('Used to trigger the checklist in chat (e.g., %meeting-prep)')}
+                            {$i18n.t('Used to trigger the checklist in chat (e.g., $meeting-prep)')}
                         </p>
                     </div>
 

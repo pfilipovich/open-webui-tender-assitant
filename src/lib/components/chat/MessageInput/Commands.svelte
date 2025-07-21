@@ -9,7 +9,7 @@
 	import { removeLastWordFromString } from '$lib/utils';
 	import { getPrompts } from '$lib/apis/prompts';
 	import { getKnowledgeBases } from '$lib/apis/knowledge';
-	import { getChecklists } from '$lib/apis/checklists';
+	import { getChecklistList } from '$lib/apis/checklists';
 
 	import Prompts from './Commands/Prompts.svelte';
 	import Knowledge from './Commands/Knowledge.svelte';
@@ -35,10 +35,10 @@
 	$: command = prompt?.split('\n').pop()?.split(' ')?.pop() ?? '';
 
         let show = false;
-        $: show = ['/', '#', '@', '&', '%'].includes(command?.charAt(0)) ||
+        $: show = ['/', '#', '@', '&', '$'].includes(command?.charAt(0)) ||
                 '\\#' === command.slice(0, 2) ||
                 '\\&' === command.slice(0, 2) ||
-                '\\%' === command.slice(0, 2);
+                '\\$' === command.slice(0, 2);
 
 	$: if (show) {
 		init();
@@ -54,7 +54,7 @@
 				knowledge.set(await getKnowledgeBases(localStorage.token));
 			})(),
 			(async () => {
-				checklists.set(await getChecklists(localStorage.token));
+				checklists.set(await getChecklistList(localStorage.token));
 			})()
 		]);
 		loading = false;
@@ -123,12 +123,12 @@
                                         dispatch('select');
                                 }}
                         />
-                {:else if (command?.charAt(0) === '%' && command.startsWith('%') && !command.includes('% ')) || ('\\%' === command.slice(0, 2) && command.startsWith('%') && !command.includes('% '))}
+                {:else if (command?.charAt(0) === '$' && command.startsWith('$') && !command.includes('$ ')) || ('\\$' === command.slice(0, 2) && command.startsWith('$') && !command.includes('$ '))}
                         <Checklists 
                                 bind:this={commandElement} 
                                 bind:prompt
                                 bind:files
-                                command={command.includes('\\%') ? command.slice(2) : command}
+                                command={command.includes('\\$') ? command.slice(2) : (command.startsWith('$') ? command.slice(1) : command)}
                                 on:execute={(e) => {
                                         dispatch('execute', {
                                                 type: 'checklist',
