@@ -5,6 +5,21 @@
 	import { WEBUI_NAME, checklists as _checklists, user } from '$lib/stores';
 	const i18n = getContext('i18n');
 
+	// Safe translation function to prevent "a[4].t is not a function" error
+	const safeT = (key) => {
+		try {
+			if ($i18n && typeof $i18n.t === 'function') {
+				return $i18n.t(key);
+			} else {
+				console.warn('i18n.t is not available, returning key:', key);
+				return key;
+			}
+		} catch (error) {
+			console.error('Translation error:', error);
+			return key;
+		}
+	};
+
 	import {
 		getChecklistList,
 		deleteChecklistByCommand
@@ -57,27 +72,27 @@
 
 <svelte:head>
 	<title>
-		{$i18n.t('Checklists')} • {$WEBUI_NAME}
+		{safeT('Checklists')} • {$WEBUI_NAME}
 	</title>
 </svelte:head>
 
 {#if loaded}
 	<DeleteConfirmDialog
 		bind:show={showDeleteConfirm}
-		title={$i18n.t('Delete checklist?')}
+		title={safeT('Delete checklist?')}
 		on:confirm={() => {
 			deleteHandler(deleteChecklistItem);
 		}}
 	>
 		<div class=" text-sm text-gray-500">
-			{$i18n.t('This will delete')} <span class="  font-semibold">{deleteChecklistItem?.command}</span>.
+			{safeT('This will delete')} <span class="  font-semibold">{deleteChecklistItem?.command}</span>.
 		</div>
 	</DeleteConfirmDialog>
 
 	<div class="flex flex-col gap-1 my-1.5">
 		<div class="flex justify-between items-center">
 			<div class="flex md:self-center text-xl font-medium px-0.5 items-center">
-				{$i18n.t('Checklists')}
+				{safeT('Checklists')}
 				<div class="flex self-center w-[1px] h-6 mx-2.5 bg-gray-50 dark:bg-gray-850" />
 				<span class="text-lg font-medium text-gray-500 dark:text-gray-300"
 					>{filteredItems.length}</span
@@ -93,7 +108,7 @@
 				<input
 					class=" w-full text-sm pr-4 py-1 rounded-r-xl outline-hidden bg-transparent"
 					bind:value={query}
-					placeholder={$i18n.t('Search Checklists')}
+					placeholder={safeT('Search Checklists')}
 				/>
 
 				{#if query}
@@ -137,13 +152,13 @@
 
 						<div class=" text-xs px-0.5">
 							<Tooltip
-								content={checklist?.user?.email ?? $i18n.t('Deleted User')}
+								content={checklist?.user?.email ?? safeT('Deleted User')}
 								className="flex shrink-0"
 								placement="top-start"
 							>
 								<div class="shrink-0 text-gray-500">
-									{$i18n.t('By {{name}}', {
-										name: checklist?.user?.name ?? checklist?.user?.email ?? $i18n.t('Deleted User')
+									{safeT('By {{name}}', {
+										name: checklist?.user?.name ?? checklist?.user?.email ?? safeT('Deleted User')
 									})}
 								</div>
 							</Tooltip>
@@ -205,16 +220,16 @@
 				</svg>
 			</div>
 			<div class="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">
-				{$i18n.t('No checklists found')}
+				{safeT('No checklists found')}
 			</div>
 			<div class="text-sm text-gray-500 dark:text-gray-400 mb-4">
-				{$i18n.t('Create your first checklist to get started')}
+				{safeT('Create your first checklist to get started')}
 			</div>
 			<a
 				href="/workspace/checklists/create"
 				class="px-4 py-2 bg-black dark:bg-white text-white dark:text-black rounded-xl hover:bg-gray-800 dark:hover:bg-gray-200 transition"
 			>
-				{$i18n.t('Create Checklist')}
+				{safeT('Create Checklist')}
 			</a>
 		</div>
 	{/if}

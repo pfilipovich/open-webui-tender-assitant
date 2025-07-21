@@ -18,6 +18,21 @@
 
 	const i18n = getContext('i18n');
 
+	// Safe translation function to prevent "a[4].t is not a function" error
+	const safeT = (key) => {
+		try {
+			if ($i18n && typeof $i18n.t === 'function') {
+				return $i18n.t(key);
+			} else {
+				console.warn('i18n.t is not available, returning key:', key);
+				return key;
+			}
+		} catch (error) {
+			console.error('Translation error:', error);
+			return key;
+		}
+	};
+
 	let loaded = false;
 
 	onMount(async () => {
@@ -50,7 +65,7 @@
 
 <svelte:head>
 	<title>
-		{$i18n.t('Workspace')} • {$WEBUI_NAME}
+		{safeT('Workspace')} • {$WEBUI_NAME}
 	</title>
 </svelte:head>
 
@@ -88,7 +103,7 @@
 								)
 									? ''
 									: 'text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'} transition"
-								href="/workspace/models">{$i18n.t('Models')}</a
+								href="/workspace/models">{safeT('Models')}</a
 							>
 						{/if}
 
@@ -101,7 +116,7 @@
 									: 'text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'} transition"
 								href="/workspace/knowledge"
 							>
-								{$i18n.t('Knowledge')}
+								{safeT('Knowledge')}
 							</a>
 						{/if}
 
@@ -112,7 +127,7 @@
 								)
 									? ''
 									: 'text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'} transition"
-								href="/workspace/prompts">{$i18n.t('Prompts')}</a
+								href="/workspace/prompts">{safeT('Prompts')}</a
 							>
 						{/if}
 
@@ -123,7 +138,7 @@
 								)
 									? ''
 									: 'text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'} transition"
-								href="/workspace/checklists">{$i18n.t('Checklists')}</a
+								href="/workspace/checklists">{safeT('Checklists')}</a
 							>
 						{/if}
 
@@ -134,7 +149,7 @@
 									: 'text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'} transition"
 								href="/workspace/tools"
 							>
-								{$i18n.t('Tools')}
+								{safeT('Tools')}
 							</a>
 						{/if}
 					</div>

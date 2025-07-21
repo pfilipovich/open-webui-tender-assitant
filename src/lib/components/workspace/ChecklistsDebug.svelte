@@ -59,13 +59,7 @@
 		<div class="space-y-4">
 			<div class="border p-3 rounded">
 				<h3 class="font-semibold">Test 1: Direct $i18n.t() call</h3>
-				<p>Result: 
-					{#try}
-						{$i18n.t('Checklists')}
-					{:catch error}
-						<span class="text-red-500">Error: {error.message}</span>
-					{/try}
-				</p>
+				<p>Result: {$i18n.t('Checklists')}</p>
 			</div>
 			
 			<div class="border p-3 rounded">

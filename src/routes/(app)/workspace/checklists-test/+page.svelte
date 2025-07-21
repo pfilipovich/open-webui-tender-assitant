@@ -1,5 +1,5 @@
 <script>
-	import ChecklistsFixed from '$lib/components/workspace/ChecklistsFixed.svelte';
+	import Checklists from '$lib/components/workspace/Checklists.svelte';
 </script>
 
-<ChecklistsFixed />
+<Checklists />
