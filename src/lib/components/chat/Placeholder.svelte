@@ -42,6 +42,12 @@
 
 	export let toolServers = [];
 
+	// External structured output from Chat.svelte (for prompt commands)
+	export let externalStructuredOutput = false;
+	export let externalStructuredOutputSchema = '';
+	export let externalStructuredOutputName = '';
+	export let onChange: Function = () => {};
+
 	let models = [];
 
 	const selectSuggestionPrompt = async (p) => {
@@ -214,14 +220,33 @@
 					{transparentBackground}
 					{stopResponse}
 					{createMessagePair}
+					{externalStructuredOutput}
+					{externalStructuredOutputSchema}
+					{externalStructuredOutputName}
 					placeholder={$i18n.t('How can I help you today?')}
 					onChange={(input) => {
+						console.log('📥 Placeholder MessageInput onChange:', {
+							structuredOutput: input.structuredOutput,
+							structuredOutputSchema: input.structuredOutputSchema ? `${input.structuredOutputSchema.length} chars` : 'none',
+							prompt: input.prompt?.substring(0, 50) + (input.prompt?.length > 50 ? '...' : '')
+						});
+
+						// Handle localStorage for non-temporary chats
 						if (!$temporaryChatEnabled) {
 							if (input.prompt !== null) {
 								localStorage.setItem(`chat-input`, JSON.stringify(input));
 							} else {
 								localStorage.removeItem(`chat-input`);
 							}
+						}
+
+						// CRITICAL FIX: Forward structured output data to Chat.svelte
+						if (onChange) {
+							console.log('📤 Placeholder forwarding onChange to Chat.svelte:', {
+								structuredOutput: input.structuredOutput,
+								structuredOutputSchema: input.structuredOutputSchema ? `${input.structuredOutputSchema.length} chars` : 'none'
+							});
+							onChange(input);
 						}
 					}}
 					on:upload={(e) => {

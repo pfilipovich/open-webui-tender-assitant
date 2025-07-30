@@ -164,3 +164,47 @@ export const deleteChecklistByCommand = async (token: string, command: string): 
 
     return await res.json();
 };
+
+export interface ChecklistItemResult {
+    prompt_command: string;
+    prompt_title?: string;
+    prompt_content?: string;
+    success: boolean;
+    result?: string;
+    error?: string;
+    structured_output: boolean;
+    structured_output_schema?: string;
+}
+
+export interface ChecklistExecutionResult {
+    checklist_command: string;
+    checklist_title: string;
+    success: boolean;
+    items: ChecklistItemResult[];
+    total_items: number;
+    successful_items: number;
+    failed_items: number;
+}
+
+export const executeChecklistByCommand = async (
+    token: string,
+    command: string
+): Promise<ChecklistExecutionResult> => {
+    let error = null;
+
+    const res = await fetch(`${WEBUI_API_BASE_URL}/checklists/command/${command}/execute`, {
+        method: 'POST',
+        headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+        }
+    });
+
+    if (!res.ok) {
+        error = await res.json();
+        throw error;
+    }
+
+    return await res.json();
+};

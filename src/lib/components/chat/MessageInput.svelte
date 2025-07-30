@@ -85,26 +85,166 @@
 	export let selectedToolIds = [];
 	export let selectedFilterIds = [];
 
+	// External structured output from Chat.svelte (for prompt commands)
+	export let externalStructuredOutput = false;
+	export let externalStructuredOutputSchema = '';
+	export let externalStructuredOutputName = '';
+
+	let currentPromptStructuredOutput = false;
+	let structuredOutputSchema = '';
+	let structuredOutputName = '';
+	let structuredOutputEnabled = false;
+	
+	// Prompt attachment state
+	let attachedPrompt = null;
+
+	// Computed values for display - combines UI, external, and attached prompt structured output
+	$: attachedPromptStructuredOutput = attachedPrompt?.structured_output || false;
+	$: attachedPromptStructuredOutputSchema = attachedPrompt?.structured_output_schema || '';
+	$: attachedPromptName = attachedPrompt?.title || attachedPrompt?.name || '';
+	
+	$: displayStructuredOutput = structuredOutputEnabled || externalStructuredOutput || attachedPromptStructuredOutput;
+	$: displayStructuredOutputSchema = structuredOutputSchema || externalStructuredOutputSchema || attachedPromptStructuredOutputSchema;
+	$: displayStructuredOutputName = structuredOutputName || externalStructuredOutputName || (attachedPromptStructuredOutput ? attachedPromptName : '');
+	
+	// Debug logging for state changes
+	$: {
+		console.log('🔄 MessageInput state update:', {
+			structuredOutputEnabled,
+			externalStructuredOutput,
+			displayStructuredOutput,
+			structuredOutputSchema: structuredOutputSchema?.length || 0,
+			externalStructuredOutputSchema: externalStructuredOutputSchema?.length || 0,
+			displayStructuredOutputSchema: displayStructuredOutputSchema?.length || 0
+		});
+	}
+
+	// Reset structured output flag when prompt changes (unless from command)
+	$: if (prompt && !prompt.startsWith('/')) {
+		currentPromptStructuredOutput = false;
+		// CRITICAL: Don't reset manual UI configuration when prompt changes!
+		// structuredOutputEnabled should persist until manually cleared
+		console.log('🔄 Prompt changed (non-command), keeping manual structured output config:', {
+			prompt: prompt.substring(0, 50) + '...',
+			structuredOutputEnabled,
+			'Will NOT reset': 'Manual UI configuration persists'
+		});
+	}
+
 	export let imageGenerationEnabled = false;
 	export let webSearchEnabled = false;
 	export let codeInterpreterEnabled = false;
 
-	$: onChange({
-		prompt,
-		files: files
-			.filter((file) => file.type !== 'image')
-			.map((file) => {
-				return {
-					...file,
-					user: undefined,
-					access_control: undefined
-				};
-			}),
-		selectedToolIds,
-		selectedFilterIds,
-		imageGenerationEnabled,
-		webSearchEnabled,
-		codeInterpreterEnabled
+	$: {
+		// Calculate structured output values directly instead of relying on computed properties
+		// to avoid reactive timing issues
+		const currentStructuredOutput = structuredOutputEnabled || externalStructuredOutput || (attachedPrompt?.structured_output || false);
+		const currentStructuredOutputSchema = structuredOutputSchema || externalStructuredOutputSchema || (attachedPrompt?.structured_output_schema || '');
+		const currentStructuredOutputName = structuredOutputName || externalStructuredOutputName || (attachedPrompt?.structured_output && (attachedPrompt?.title || attachedPrompt?.name) ? (attachedPrompt.title || attachedPrompt.name) : '');
+		
+		const structuredOutputData = {
+			structuredOutput: currentStructuredOutput,
+			structuredOutputSchema: currentStructuredOutputSchema,
+			structuredOutputName: currentStructuredOutputName
+		};
+		
+		// ULTRA-DEBUG: Log every reactive update to catch state resets
+		console.log('🔄 MessageInput REACTIVE UPDATE triggered:', {
+			trigger: 'reactive_block',
+			timestamp: new Date().toISOString(),
+			prompt: prompt?.substring(0, 50) + (prompt?.length > 50 ? '...' : ''),
+			structuredOutputEnabled,
+			externalStructuredOutput,
+			attachedPromptSO: attachedPrompt?.structured_output || false,
+			finalStructuredOutput: structuredOutputData.structuredOutput,
+			finalSchemaLength: structuredOutputData.structuredOutputSchema?.length || 0,
+			stackTrace: new Error().stack?.split('\n')[1] || 'unknown'
+		});
+		
+		// Enhanced logging for structured output state
+		if (structuredOutputData.structuredOutput) {
+			console.log('📤 MessageInput sending structured output:', {
+				...structuredOutputData,
+				schemaLength: structuredOutputData.structuredOutputSchema?.length || 0,
+				source: structuredOutputEnabled ? 'manual_ui' : attachedPrompt?.structured_output ? 'attached_prompt' : 'external_prompt'
+			});
+		} else if (externalStructuredOutput || structuredOutputEnabled || attachedPrompt?.structured_output) {
+			console.log('📤 MessageInput structured output debug:', {
+				structuredOutputEnabled,
+				externalStructuredOutput,
+				attachedPromptSO: attachedPrompt?.structured_output || false,
+				currentStructuredOutput,
+				'Diagnosis': 'Flags are set but final output is false - check reactive dependencies'
+			});
+		}
+		
+		// Defensive check to ensure onChange is available before calling
+		if (onChange) {
+			onChange({
+				prompt,
+				files: files
+					.filter((file) => file.type !== 'image')
+					.map((file) => {
+						return {
+							...file,
+							user: undefined,
+							access_control: undefined
+						};
+					}),
+				...structuredOutputData,
+				attachedPrompt,
+				selectedToolIds,
+				selectedFilterIds,
+				imageGenerationEnabled,
+				webSearchEnabled,
+				codeInterpreterEnabled
+			});
+		} else {
+			console.warn('📤 MessageInput onChange not available, structured output data not sent:', {
+				hasStructuredOutput: structuredOutputData.structuredOutput,
+				schemaLength: structuredOutputData.structuredOutputSchema?.length || 0
+			});
+		}
+	}
+
+	// Ensure initial structured output state is properly sent to parent on mount
+	onMount(() => {
+		// Small delay to ensure parent is ready to receive onChange calls
+		setTimeout(() => {
+			const initialStructuredOutput = structuredOutputEnabled || externalStructuredOutput || (attachedPrompt?.structured_output || false);
+			const initialStructuredOutputSchema = structuredOutputSchema || externalStructuredOutputSchema || (attachedPrompt?.structured_output_schema || '');
+			const initialStructuredOutputName = structuredOutputName || externalStructuredOutputName || (attachedPrompt?.structured_output && (attachedPrompt?.title || attachedPrompt?.name) ? (attachedPrompt.title || attachedPrompt.name) : '');
+			
+			if (initialStructuredOutput && onChange) {
+				console.log('🚀 MOUNT: Sending initial structured output state to parent:', {
+					structuredOutput: initialStructuredOutput,
+					schemaLength: initialStructuredOutputSchema?.length || 0,
+					name: initialStructuredOutputName
+				});
+				
+				onChange({
+					prompt,
+					files: files
+						.filter((file) => file.type !== 'image')
+						.map((file) => {
+							return {
+								...file,
+								user: undefined,
+								access_control: undefined
+							};
+						}),
+					structuredOutput: initialStructuredOutput,
+					structuredOutputSchema: initialStructuredOutputSchema,
+					structuredOutputName: initialStructuredOutputName,
+					attachedPrompt,
+					selectedToolIds,
+					selectedFilterIds,
+					imageGenerationEnabled,
+					webSearchEnabled,
+					codeInterpreterEnabled
+				});
+			}
+		}, 10); // Small delay to ensure parent binding is ready
 	});
 
 	let showTools = false;
@@ -187,6 +327,10 @@
 			codeInterpreterCapableModels.length &&
 		$config?.features?.enable_code_interpreter &&
 		($_user.role === 'admin' || $_user?.permissions?.features?.code_interpreter);
+
+	let showStructuredOutputButton = true;
+	// Always show structured output button for better discoverability
+	$: showStructuredOutputButton = true;
 
 	const scrollToBottom = () => {
 		const element = document.getElementById('messages-container');
@@ -586,6 +730,9 @@
 							const chatInputElement = document.getElementById('chat-input');
 							chatInputElement?.focus();
 						}}
+						on:structuredOutput={(e) => {
+							currentPromptStructuredOutput = e.detail.structured_output;
+						}}
 					/>
 				</div>
 			</div>
@@ -741,6 +888,120 @@
 												/>
 											{/if}
 										{/each}
+									</div>
+								{/if}
+
+								{#if attachedPrompt}
+									<div class="mx-2 mt-2.5 -mb-1 flex items-center">
+										<div class="flex items-center gap-2 px-3 py-2 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
+											<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-purple-600 dark:text-purple-400">
+												<path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3-9.75H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25H6A2.25 2.25 0 013.75 18V6A2.25 2.25 0 016 3.75h4.125C11.25 3.75 12 4.5 12 5.25v1.5h3V18z"/>
+											</svg>
+											<span class="text-sm text-purple-700 dark:text-purple-300 font-medium">
+												{attachedPrompt.title || attachedPrompt.name || 'Prompt'}
+											</span>
+											{#if attachedPromptStructuredOutput}
+												<div class="flex items-center gap-1 px-2 py-1 bg-blue-100 dark:bg-blue-800/30 rounded text-xs text-blue-700 dark:text-blue-300">
+													<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
+														<path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75 22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3-4.5 16.5" />
+													</svg>
+													SO
+												</div>
+											{/if}
+											<button 
+												on:click={() => {
+													attachedPrompt = null;
+												}}
+												class="text-purple-600 hover:text-purple-800 dark:text-purple-400 dark:hover:text-purple-200 transition"
+												title={$i18n.t('Remove prompt')}
+											>
+												<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
+													<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+												</svg>
+											</button>
+										</div>
+									</div>
+								{/if}
+
+								{#if displayStructuredOutput && displayStructuredOutputSchema && !attachedPromptStructuredOutput}
+									<div class="mx-2 mt-2.5 -mb-1 flex items-center">
+										<div class="flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+											<div class="flex items-center gap-2">
+												<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-blue-600 dark:text-blue-400">
+													<path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75 22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3-4.5 16.5" />
+												</svg>
+												<span class="text-sm text-blue-700 dark:text-blue-300 font-medium">
+													{displayStructuredOutputName || 'Structured Output'}
+												</span>
+												{#if externalStructuredOutput}
+													<span class="text-xs text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-800/30 px-1.5 py-0.5 rounded" title="From external command">
+														⌘
+													</span>
+												{:else}
+													<span class="text-xs text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-800/30 px-1.5 py-0.5 rounded" title="Manual configuration">
+														✓
+													</span>
+												{/if}
+											</div>
+											{#if !externalStructuredOutput}
+												<button 
+													on:click={() => {
+														// Find the InputMenu component and trigger the structured output modal
+														const moreBtn = document.querySelector('[aria-label="More"]');
+														if (moreBtn) {
+															moreBtn.click();
+															// Small delay to let the dropdown open, then click structured output
+															setTimeout(() => {
+																const structuredOutputBtn = document.querySelector('[data-structured-output-btn]');
+																if (structuredOutputBtn) {
+																	structuredOutputBtn.click();
+																}
+															}, 50);
+														}
+													}}
+													class="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-200 transition"
+													title={$i18n.t('Edit structured output')}
+												>
+													<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
+														<path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Zm0 0L19.5 7.125" />
+													</svg>
+												</button>
+											{:else}
+												<span 
+													class="text-gray-400 dark:text-gray-500 cursor-not-allowed"
+													title="Cannot edit prompt-based structured output"
+												>
+													<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
+														<path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Zm0 0L19.5 7.125" />
+													</svg>
+												</span>
+											{/if}
+											{#if !externalStructuredOutput}
+												<button 
+													on:click={() => {
+														structuredOutputSchema = '';
+														structuredOutputName = '';
+														structuredOutputEnabled = false;
+														currentPromptStructuredOutput = false;
+													}}
+													class="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-200 transition"
+													title={$i18n.t('Remove structured output')}
+												>
+													<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
+														<path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+													</svg>
+												</button>
+											{:else}
+												<span 
+													class="text-gray-400 dark:text-gray-500 cursor-not-allowed"
+													title="Structured output from prompt command"
+												>
+													<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
+														<path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+													</svg>
+												</span>
+											{/if}
+										</div>
 									</div>
 								{/if}
 
@@ -1203,6 +1464,7 @@
 											bind:selectedToolIds
 											selectedModels={atSelectedModel ? [atSelectedModel.id] : selectedModels}
 											{fileUploadCapableModels}
+											bind:structuredOutputEnabled
 											{screenCaptureHandler}
 											{inputFilesHandler}
 											uploadFilesHandler={() => {
@@ -1243,6 +1505,50 @@
 													console.error('OneDrive Error:', error);
 												}
 											}}
+											on:structuredOutputChange={(e) => {
+												if (e.detail) {
+													structuredOutputSchema = e.detail.schema;
+													structuredOutputName = e.detail.name;
+													structuredOutputEnabled = true;
+													console.log('🎯 Structured Output Configured in MessageInput:', {
+														schema: structuredOutputSchema,
+														name: structuredOutputName,
+														enabled: structuredOutputEnabled,
+														schemaLength: structuredOutputSchema?.length || 0
+													});
+													
+													// Force an update to the computed values
+													displayStructuredOutput = structuredOutputEnabled || externalStructuredOutput;
+													displayStructuredOutputSchema = structuredOutputSchema || externalStructuredOutputSchema;
+													displayStructuredOutputName = structuredOutputName || externalStructuredOutputName;
+													
+													console.log('🎯 Computed values after configuration:', {
+														displayStructuredOutput,
+														displayStructuredOutputSchemaLength: displayStructuredOutputSchema?.length || 0,
+														displayStructuredOutputName
+													});
+												} else {
+													structuredOutputSchema = '';
+													structuredOutputName = '';
+													structuredOutputEnabled = false;
+													console.log('🎯 Structured Output Cleared');
+												}
+											}}
+											on:promptAttach={(e) => {
+												attachedPrompt = e.detail;
+												
+												// Clear manual structured output when attaching a prompt
+												// The prompt's own structured output (if any) will take precedence
+												structuredOutputEnabled = false;
+												structuredOutputSchema = '';
+												structuredOutputName = '';
+												
+												console.log('🎯 Prompt attached:', {
+													title: attachedPrompt.title || attachedPrompt.name,
+													hasStructuredOutput: attachedPrompt.structured_output,
+													clearedManualSO: true
+												});
+											}}
 											onClose={async () => {
 												await tick();
 
@@ -1268,7 +1574,7 @@
 											</button>
 										</InputMenu>
 
-										{#if $_user && (showToolsButton || (toggleFilters && toggleFilters.length > 0) || showWebSearchButton || showImageGenerationButton || showCodeInterpreterButton)}
+										{#if $_user && (showToolsButton || (toggleFilters && toggleFilters.length > 0) || showWebSearchButton || showImageGenerationButton || showCodeInterpreterButton || showStructuredOutputButton)}
 											<div
 												class="flex self-center w-[1px] h-4 mx-1.5 bg-gray-50 dark:bg-gray-800"
 											/>
@@ -1353,6 +1659,66 @@
 																class="hidden @xl:block whitespace-nowrap overflow-hidden text-ellipsis leading-none pr-0.5"
 																>{$i18n.t('Web Search')}</span
 															>
+														</button>
+													</Tooltip>
+												{/if}
+
+												{#if showStructuredOutputButton}
+													<!-- Dedicated Structured Output Button -->
+													<Tooltip 
+														content={displayStructuredOutput 
+															? `${$i18n.t('Structured Output Active')}: ${displayStructuredOutputName || 'Custom Schema'}\n${$i18n.t('Source')}: ${attachedPromptStructuredOutput ? $i18n.t('Attached Prompt') : externalStructuredOutput ? $i18n.t('External Command') : $i18n.t('Manual Configuration')}\n${$i18n.t('Click to edit')}`
+															: $i18n.t('Configure structured output - Get JSON responses from AI models')} 
+														placement="top"
+													>
+														<button
+															on:click|preventDefault={() => {
+																// Use the same mechanism as the current implementation
+																const moreBtn = document.querySelector('[aria-label="More"]');
+																if (moreBtn) {
+																	moreBtn.click();
+																	// Small delay to let the dropdown open, then click structured output
+																	setTimeout(() => {
+																		const structuredOutputBtn = document.querySelector('[data-structured-output-btn]');
+																		if (structuredOutputBtn) {
+																			structuredOutputBtn.click();
+																		}
+																	}, 50);
+																}
+															}}
+															type="button"
+															class="relative px-2 @xl:px-2.5 py-2 flex gap-1.5 items-center text-sm rounded-full transition-colors duration-300 focus:outline-hidden max-w-full overflow-hidden hover:bg-gray-50 dark:hover:bg-gray-800 {displayStructuredOutput
+																? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-200/5'
+																: 'bg-transparent text-gray-600 dark:text-gray-300'}"
+														>
+															<div class="relative">
+																<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor" class="size-4">
+																	<path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75 22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3-4.5 16.5" />
+																</svg>
+																{#if displayStructuredOutput}
+																	<!-- Active indicator dot -->
+																	<div class="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full border border-white dark:border-gray-800"></div>
+																{/if}
+															</div>
+															<span class="hidden @xl:block whitespace-nowrap overflow-hidden text-ellipsis leading-none pr-0.5">
+																{#if displayStructuredOutput}
+																	{#if attachedPromptStructuredOutput}
+																		<span class="flex items-center gap-1">
+																			{displayStructuredOutputName || 'JSON'}
+																			<span class="text-xs opacity-75">📎</span>
+																		</span>
+																	{:else if externalStructuredOutput}
+																		<span class="flex items-center gap-1">
+																			{displayStructuredOutputName || 'JSON'}
+																			<span class="text-xs opacity-75">⌘</span>
+																		</span>
+																	{:else}
+																		{displayStructuredOutputName || 'JSON'}
+																	{/if}
+																{:else}
+																	{$i18n.t('JSON')}
+																{/if}
+															</span>
 														</button>
 													</Tooltip>
 												{/if}

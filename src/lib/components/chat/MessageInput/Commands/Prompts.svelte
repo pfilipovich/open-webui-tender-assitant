@@ -9,10 +9,11 @@
 		getUserTimezone,
 		getWeekday
 	} from '$lib/utils';
-	import { tick, getContext } from 'svelte';
+	import { tick, getContext, createEventDispatcher } from 'svelte';
 	import { toast } from 'svelte-sonner';
 
 	const i18n = getContext('i18n');
+	const dispatch = createEventDispatcher();
 
 	export let files;
 
@@ -170,6 +171,14 @@
 			} else {
 				chatInputElement.scrollTop = chatInputElement.scrollHeight;
 			}
+		}
+
+		// Dispatch event if prompt has structured output enabled
+		if (command.structured_output) {
+			dispatch('structuredOutput', {
+				command: command.command,
+				structured_output: true
+			});
 		}
 	};
 </script>

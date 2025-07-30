@@ -1293,6 +1293,68 @@ async def embeddings(
     return await generate_embeddings(request, form_data, user)
 
 
+@app.post("/api/completions")
+async def text_completion(
+    request: Request,
+    form_data: dict,
+    user=Depends(get_verified_user),
+):
+    """Handle text completions (non-chat)"""
+    if not request.app.state.MODELS:
+        await get_all_models(request, user=user)
+
+    model_item = form_data.pop("model_item", {})
+    tasks = form_data.pop("background_tasks", None)
+
+    metadata = {}
+    try:
+        if not model_item.get("direct", False):
+            model_id = form_data.get("model", None)
+            if model_id not in request.app.state.MODELS:
+                raise Exception("Model not found")
+
+            model = request.app.state.MODELS[model_id]
+            model_info = Models.get_model_by_id(model_id)
+
+            # Check if user has access to the model
+            if not BYPASS_MODEL_ACCESS_CONTROL and user.role == "user":
+                try:
+                    check_model_access(user, model)
+                except Exception as e:
+                    raise e
+        else:
+            model = model_item
+            model_info = None
+
+            request.state.direct = True
+            request.state.model = model
+
+        metadata = {
+            "user_id": user.id,
+            "chat_id": form_data.pop("chat_id", None),
+            "message_id": form_data.pop("id", None),
+            "session_id": form_data.pop("session_id", None),
+            "filter_ids": form_data.pop("filter_ids", []),
+            "tool_ids": form_data.get("tool_ids", None),
+            "tool_servers": form_data.pop("tool_servers", None),
+            "files": form_data.get("files", None),
+        }
+
+        form_data["metadata"] = metadata
+
+        # Use the same chat completion logic since modern LLMs handle both
+        return await generate_direct_chat_completion(
+            request, form_data, user, request.app.state.MODELS
+        )
+
+    except Exception as e:
+        log.exception(e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
+
 @app.post("/api/chat/completions")
 async def chat_completion(
     request: Request,
@@ -1341,6 +1403,8 @@ async def chat_completion(
             "variables": form_data.get("variables", {}),
             "model": model,
             "direct": model_item.get("direct", False),
+            "structured_output": form_data.get("metadata", {}).get("structured_output", False),
+            "structured_output_schema": form_data.get("metadata", {}).get("structured_output_schema"),
             **(
                 {"function_calling": "native"}
                 if form_data.get("params", {}).get("function_calling") == "native"

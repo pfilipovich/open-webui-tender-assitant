@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { DropdownMenu } from 'bits-ui';
 	import { flyAndScale } from '$lib/utils/transitions';
-	import { getContext, onMount, tick } from 'svelte';
+	import { getContext, onMount, tick, createEventDispatcher } from 'svelte';
+
+	const dispatch = createEventDispatcher();
 
 	import { config, user, tools as _tools, mobile } from '$lib/stores';
 	import { createPicker } from '$lib/utils/google-drive-picker';
@@ -17,6 +19,8 @@
 	import CameraSolid from '$lib/components/icons/CameraSolid.svelte';
 	import PhotoSolid from '$lib/components/icons/PhotoSolid.svelte';
 	import CommandLineSolid from '$lib/components/icons/CommandLineSolid.svelte';
+	import StructuredOutputModal from './StructuredOutputModal.svelte';
+	import PromptSelectionModal from './PromptSelectionModal.svelte';
 
 	const i18n = getContext('i18n');
 
@@ -33,6 +37,13 @@
 	export let uploadOneDriveHandler: Function;
 
 	export let onClose: Function;
+
+	let showStructuredOutputModal = false;
+	let currentStructuredOutputSchema = '';
+	let currentStructuredOutputName = '';
+	export let structuredOutputEnabled = false;
+	
+	let showPromptSelectionModal = false;
 
 	let tools = {};
 	let show = false;
@@ -75,6 +86,38 @@
 		}
 	}
 </script>
+
+<StructuredOutputModal
+	bind:show={showStructuredOutputModal}
+	currentSchema={currentStructuredOutputSchema}
+	currentName={currentStructuredOutputName}
+	on:save={(e) => {
+		currentStructuredOutputSchema = e.detail.schema;
+		currentStructuredOutputName = e.detail.name;
+		structuredOutputEnabled = true;
+		dispatch('structuredOutputChange', e.detail);
+	}}
+	on:clear={() => {
+		currentStructuredOutputSchema = '';
+		currentStructuredOutputName = '';
+		structuredOutputEnabled = false;
+		dispatch('structuredOutputChange', null);
+	}}
+	on:cancel={() => {
+		showStructuredOutputModal = false;
+	}}
+/>
+
+<PromptSelectionModal
+	bind:show={showPromptSelectionModal}
+	on:select={(e) => {
+		dispatch('promptAttach', e.detail);
+		showPromptSelectionModal = false;
+	}}
+	on:cancel={() => {
+		showPromptSelectionModal = false;
+	}}
+/>
 
 <!-- Hidden file input used to open the camera on mobile -->
 <input
@@ -386,6 +429,33 @@
 					</DropdownMenu.Sub>
 				{/if}
 			{/if}
+
+			<hr class="border-black/5 dark:border-white/5 my-1" />
+
+			<DropdownMenu.Item
+				class="flex gap-2 items-center px-3 py-2 text-sm font-medium cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl"
+				on:click={() => {
+					showPromptSelectionModal = true;
+				}}
+			>
+				<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 text-purple-600 dark:text-purple-400">
+					<path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3-9.75H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25H6A2.25 2.25 0 013.75 18V6A2.25 2.25 0 016 3.75h4.125C11.25 3.75 12 4.5 12 5.25v1.5h3V18z"/>
+				</svg>
+				<div class="line-clamp-1">{$i18n.t('Attach Prompt')}</div>
+			</DropdownMenu.Item>
+
+			<DropdownMenu.Item
+				class="flex gap-2 items-center px-3 py-2 text-sm font-medium cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl"
+				data-structured-output-btn
+				on:click={() => {
+					showStructuredOutputModal = true;
+				}}
+			>
+				<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+					<path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75 22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3-4.5 16.5" />
+				</svg>
+				<div class="line-clamp-1">{$i18n.t('Structured Output')}</div>
+			</DropdownMenu.Item>
 		</DropdownMenu.Content>
 	</div>
 </Dropdown>

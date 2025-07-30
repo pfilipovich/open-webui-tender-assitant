@@ -64,7 +64,15 @@
 {#if show}
 	{#if !loading}
                 {#if command?.charAt(0) === '/'}
-                        <Prompts bind:this={commandElement} bind:prompt bind:files {command} />
+                        <Prompts 
+				bind:this={commandElement} 
+				bind:prompt 
+				bind:files 
+				{command} 
+				on:structuredOutput={(e) => {
+					dispatch('structuredOutput', e.detail);
+				}}
+			/>
                 {:else if (command?.charAt(0) === '#' && command.startsWith('#') && !command.includes('# ')) || ('\\#' === command.slice(0, 2) && command.startsWith('#') && !command.includes('# '))}
                         <Knowledge
                                 bind:this={commandElement}

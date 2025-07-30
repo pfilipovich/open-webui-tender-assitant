@@ -182,6 +182,11 @@
 							<div class=" text-xs overflow-hidden text-ellipsis line-clamp-1">
 								{prompt.command}
 							</div>
+							{#if prompt.structured_output}
+								<div class="px-1.5 py-0.5 text-xs bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 rounded-full font-medium">
+									JSON
+								</div>
+							{/if}
 						</div>
 
 						<div class=" text-xs px-0.5">
@@ -274,7 +279,10 @@
 									command:
 										prompt.command.charAt(0) === '/' ? prompt.command.slice(1) : prompt.command,
 									title: prompt.title,
-									content: prompt.content
+									content: prompt.content,
+									access_control: prompt.access_control,
+									structured_output: prompt.structured_output || false,
+									structured_output_schema: prompt.structured_output_schema || ''
 								}).catch((error) => {
 									toast.error(`${error}`);
 									return null;

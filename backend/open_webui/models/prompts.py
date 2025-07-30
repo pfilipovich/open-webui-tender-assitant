@@ -5,7 +5,7 @@ from open_webui.internal.db import Base, get_db
 from open_webui.models.users import Users, UserResponse
 
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import BigInteger, Column, String, Text, JSON
+from sqlalchemy import BigInteger, Column, String, Text, JSON, Boolean
 
 from open_webui.utils.access_control import has_access
 
@@ -17,13 +17,16 @@ from open_webui.utils.access_control import has_access
 class Prompt(Base):
     __tablename__ = "prompt"
 
-    command = Column(String, primary_key=True)
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    command = Column(String, nullable=False)
     user_id = Column(String)
     title = Column(Text)
     content = Column(Text)
     timestamp = Column(BigInteger)
 
     access_control = Column(JSON, nullable=True)  # Controls data access levels.
+    structured_output = Column(Boolean, default=False, nullable=False)  # Enable structured JSON output for OpenAI models
+    structured_output_schema = Column(Text, nullable=True)  # JSON schema for structured output validation
     # Defines access control rules for this entry.
     # - `None`: Public access, available to all users with the "user" role.
     # - `{}`: Private access, restricted exclusively to the owner.
@@ -42,6 +45,7 @@ class Prompt(Base):
 
 
 class PromptModel(BaseModel):
+    id: int
     command: str
     user_id: str
     title: str
@@ -49,6 +53,8 @@ class PromptModel(BaseModel):
     timestamp: int  # timestamp in epoch
 
     access_control: Optional[dict] = None
+    structured_output: bool = False
+    structured_output_schema: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -66,23 +72,27 @@ class PromptForm(BaseModel):
     title: str
     content: str
     access_control: Optional[dict] = None
+    structured_output: bool = False
+    structured_output_schema: Optional[str] = None
 
 
 class PromptsTable:
     def insert_new_prompt(
         self, user_id: str, form_data: PromptForm
     ) -> Optional[PromptModel]:
-        prompt = PromptModel(
-            **{
-                "user_id": user_id,
-                **form_data.model_dump(),
-                "timestamp": int(time.time()),
-            }
-        )
-
         try:
             with get_db() as db:
-                result = Prompt(**prompt.model_dump())
+                # Create database model directly (id will be auto-generated)
+                result = Prompt(
+                    user_id=user_id,
+                    command=form_data.command,
+                    title=form_data.title,
+                    content=form_data.content,
+                    timestamp=int(time.time()),
+                    access_control=form_data.access_control,
+                    structured_output=form_data.structured_output,
+                    structured_output_schema=form_data.structured_output_schema
+                )
                 db.add(result)
                 db.commit()
                 db.refresh(result)
@@ -97,6 +107,8 @@ class PromptsTable:
         try:
             with get_db() as db:
                 prompt = db.query(Prompt).filter_by(command=command).first()
+                if prompt is None:
+                    return None
                 return PromptModel.model_validate(prompt)
         except Exception:
             return None
@@ -139,6 +151,8 @@ class PromptsTable:
                 prompt.title = form_data.title
                 prompt.content = form_data.content
                 prompt.access_control = form_data.access_control
+                prompt.structured_output = form_data.structured_output
+                prompt.structured_output_schema = form_data.structured_output_schema
                 prompt.timestamp = int(time.time())
                 db.commit()
                 return PromptModel.model_validate(prompt)

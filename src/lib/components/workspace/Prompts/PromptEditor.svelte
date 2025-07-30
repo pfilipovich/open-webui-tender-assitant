@@ -22,6 +22,9 @@
 	let title = '';
 	let command = '';
 	let content = '';
+	let structuredOutput = false;
+	let structuredOutputSchema = '';
+	let schemaError = '';
 
 	let accessControl = {};
 
@@ -42,11 +45,21 @@
 		loading = true;
 
 		if (validateCommandString(command)) {
+			// Validate schema if structured output is enabled
+			if (structuredOutput && structuredOutputSchema.trim()) {
+				if (!validateJsonSchema(structuredOutputSchema)) {
+					loading = false;
+					return;
+				}
+			}
+
 			await onSubmit({
 				title,
 				command,
 				content,
-				access_control: accessControl
+				access_control: accessControl,
+				structured_output: structuredOutput,
+				structured_output_schema: structuredOutput ? structuredOutputSchema || null : null
 			});
 		} else {
 			toast.error(
@@ -65,6 +78,70 @@
 		return regex.test(inputString);
 	};
 
+	const validateJsonSchema = (schemaStr) => {
+		if (!schemaStr.trim()) {
+			schemaError = '';
+			return true;
+		}
+
+		try {
+			const schema = JSON.parse(schemaStr);
+			
+			if (typeof schema !== 'object' || schema === null) {
+				schemaError = $i18n.t('Schema must be a JSON object');
+				return false;
+			}
+			
+			if (!schema.type) {
+				schemaError = $i18n.t('Schema must have a "type" field');
+				return false;
+			}
+			
+			schemaError = '';
+			return true;
+		} catch (e) {
+			schemaError = $i18n.t('Invalid JSON format');
+			return false;
+		}
+	};
+
+	const insertSchemaExample = (exampleType) => {
+		const examples = {
+			simple: `{
+  "type": "object",
+  "properties": {
+    "result": {"type": "string"},
+    "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+  },
+  "required": ["result"]
+}`,
+			checklist: `{
+  "type": "object",
+  "properties": {
+    "task": {"type": "string"},
+    "completed": {"type": "boolean"},
+    "notes": {"type": "string"},
+    "priority": {"type": "string", "enum": ["low", "medium", "high"]}
+  },
+  "required": ["task", "completed"]
+}`,
+			analysis: `{
+  "type": "object",
+  "properties": {
+    "summary": {"type": "string"},
+    "key_points": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "score": {"type": "integer", "minimum": 1, "maximum": 10}
+  },
+  "required": ["summary", "score"]
+}`
+		};
+		structuredOutputSchema = examples[exampleType] || '';
+		validateJsonSchema(structuredOutputSchema);
+	};
+
 	onMount(async () => {
 		if (prompt) {
 			title = prompt.title;
@@ -72,6 +149,8 @@
 
 			command = prompt.command.at(0) === '/' ? prompt.command.slice(1) : prompt.command;
 			content = prompt.content;
+			structuredOutput = prompt.structured_output || false;
+			structuredOutputSchema = prompt.structured_output_schema || '';
 
 			accessControl = prompt?.access_control === undefined ? {} : prompt?.access_control;
 		}
@@ -177,6 +256,78 @@
 					{$i18n.t('variable to have them replaced with clipboard content.')}
 				</div>
 			</div>
+		</div>
+
+		<div class="my-3">
+			<div class="flex items-center gap-2">
+				<input
+					type="checkbox"
+					id="structured-output"
+					bind:checked={structuredOutput}
+					class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+				/>
+				<label for="structured-output" class="text-sm font-medium text-gray-700 dark:text-gray-300">
+					{$i18n.t('Return structured output as JSON (OpenAI models only)')}
+				</label>
+			</div>
+			<p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+				{$i18n.t('When enabled, the response will be formatted as JSON for easier parsing and processing')}
+			</p>
+
+			{#if structuredOutput}
+				<div class="mt-4">
+					<div class="flex w-full justify-between items-center mb-2">
+						<div class="text-sm font-semibold">{$i18n.t('JSON Schema (Optional)')}</div>
+						<div class="flex gap-1">
+							<button
+								type="button"
+								class="text-xs px-2 py-1 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded transition"
+								on:click={() => insertSchemaExample('simple')}
+							>
+								{$i18n.t('Simple')}
+							</button>
+							<button
+								type="button"
+								class="text-xs px-2 py-1 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded transition"
+								on:click={() => insertSchemaExample('checklist')}
+							>
+								{$i18n.t('Checklist')}
+							</button>
+							<button
+								type="button"
+								class="text-xs px-2 py-1 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded transition"
+								on:click={() => insertSchemaExample('analysis')}
+							>
+								{$i18n.t('Analysis')}
+							</button>
+						</div>
+					</div>
+
+					<div>
+						<Textarea
+							className="text-sm w-full bg-transparent outline-hidden overflow-y-hidden resize-none font-mono {schemaError ? 'border-red-500' : ''}"
+							placeholder={$i18n.t('Define JSON schema to validate AI responses (leave empty for basic JSON output)')}
+							bind:value={structuredOutputSchema}
+							on:input={() => validateJsonSchema(structuredOutputSchema)}
+							rows={8}
+						/>
+					</div>
+
+					{#if schemaError}
+						<div class="text-xs text-red-500 mt-1">
+							❌ {schemaError}
+						</div>
+					{:else if structuredOutputSchema.trim()}
+						<div class="text-xs text-green-500 mt-1">
+							✅ {$i18n.t('Valid JSON schema')}
+						</div>
+					{/if}
+
+					<div class="text-xs text-gray-400 dark:text-gray-500 mt-2">
+						ⓘ {$i18n.t('Define a JSON schema to ensure the AI response follows a specific structure. Leave empty to allow any JSON format.')}
+					</div>
+				</div>
+			{/if}
 		</div>
 
 		<div class="my-4 flex justify-end pb-20">

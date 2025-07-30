@@ -52,6 +52,15 @@
 		processDetails,
 		removeAllDetails
 	} from '$lib/utils';
+	
+	import {
+		validateStructuredOutputState,
+		captureStructuredOutputState,
+		withStateValidation,
+		enableEventProtectionDebug,
+		type StructuredOutputState,
+		type StateValidationResult
+	} from '$lib/utils/event-protection';
 
 	import { generateChatCompletion } from '$lib/apis/ollama';
 	import {
@@ -66,7 +75,7 @@
 		updateChatById
 	} from '$lib/apis/chats';
 	import { generateOpenAIChatCompletion } from '$lib/apis/openai';
-	import { getPromptByCommand } from '$lib/apis/prompts';
+	import { getPromptByCommand, getPrompts } from '$lib/apis/prompts';
 	import { processWeb, processWebSearch, processYoutubeVideo } from '$lib/apis/retrieval';
 	import { createOpenAITextStream } from '$lib/apis/streaming';
 	import { queryMemory } from '$lib/apis/memories';
@@ -142,6 +151,25 @@
 	let chatFiles = [];
 	let files = [];
 	let params = {};
+	let currentStructuredOutput = false;
+	let currentStructuredOutputSchema = '';
+	let currentStructuredOutputName = '';
+	let attachedPrompt = null;
+	
+	// Flag to prevent destructive updates during submission
+	let submissionInProgress = false;
+	
+	// Debug reactive changes to structured output state
+	$: {
+		if (currentStructuredOutput || currentStructuredOutputSchema || currentStructuredOutputName) {
+			console.log('🔄 REACTIVE: Structured output state changed:', {
+				structuredOutput: currentStructuredOutput,
+				schemaLength: currentStructuredOutputSchema?.length || 0,
+				name: currentStructuredOutputName,
+				timestamp: new Date().toISOString()
+			});
+		}
+	}
 
 	$: if (chatIdProp) {
 		(async () => {
@@ -151,6 +179,7 @@
 			files = [];
 			selectedToolIds = [];
 			selectedFilterIds = [];
+			attachedPrompt = null;
 			webSearchEnabled = false;
 			imageGenerationEnabled = false;
 
@@ -168,6 +197,20 @@
 						webSearchEnabled = input.webSearchEnabled;
 						imageGenerationEnabled = input.imageGenerationEnabled;
 						codeInterpreterEnabled = input.codeInterpreterEnabled;
+						
+						// Restore structured output settings for chat session persistence
+						if (input.structuredOutput !== undefined) {
+							currentStructuredOutput = input.structuredOutput;
+						}
+						if (input.structuredOutputSchema !== undefined) {
+							currentStructuredOutputSchema = input.structuredOutputSchema;
+						}
+						if (input.structuredOutputName !== undefined) {
+							currentStructuredOutputName = input.structuredOutputName;
+						}
+						if (input.attachedPrompt !== undefined) {
+							attachedPrompt = input.attachedPrompt;
+						}
 					}
 				} catch (e) {}
 			}
@@ -418,8 +461,29 @@
 			console.debug(event.data.text);
 
 			if (prompt !== '') {
+				// CRITICAL FIX: Set submission flag before any processing
+				submissionInProgress = true;
+				
+				// CRITICAL: Wait for reactive system to fully process, THEN capture state
 				await tick();
-				submitPrompt(prompt);
+				await new Promise(resolve => setTimeout(resolve, 10)); // Small delay for reactive updates
+				
+				// Capture structured output state AFTER ensuring all reactive updates are complete
+				const postTickCapturedState = {
+					structuredOutput: currentStructuredOutput,
+					structuredOutputSchema: currentStructuredOutputSchema,
+					structuredOutputName: currentStructuredOutputName,
+					attachedPrompt: attachedPrompt
+				};
+				
+				console.log('🔒 Captured state for action:submit:', {
+					structuredOutput: postTickCapturedState.structuredOutput,
+					schemaLength: postTickCapturedState.structuredOutputSchema?.length || 0,
+					name: postTickCapturedState.structuredOutputName,
+					attachedPrompt: postTickCapturedState.attachedPrompt?.title || 'none'
+				});
+				
+				submitPrompt(prompt, { capturedState: postTickCapturedState });
 			}
 		}
 
@@ -427,8 +491,29 @@
 			console.debug(event.data.text);
 
 			if (event.data.text !== '') {
+				// CRITICAL FIX: Set submission flag before any processing
+				submissionInProgress = true;
+				
+				// CRITICAL: Wait for reactive system to fully process, THEN capture state
 				await tick();
-				submitPrompt(event.data.text);
+				await new Promise(resolve => setTimeout(resolve, 10)); // Small delay for reactive updates
+				
+				// Capture structured output state AFTER ensuring all reactive updates are complete
+				const postTickCapturedState = {
+					structuredOutput: currentStructuredOutput,
+					structuredOutputSchema: currentStructuredOutputSchema,
+					structuredOutputName: currentStructuredOutputName,
+					attachedPrompt: attachedPrompt
+				};
+				
+				console.log('🔒 Captured state for input:prompt:submit:', {
+					structuredOutput: postTickCapturedState.structuredOutput,
+					schemaLength: postTickCapturedState.structuredOutputSchema?.length || 0,
+					name: postTickCapturedState.structuredOutputName,
+					attachedPrompt: postTickCapturedState.attachedPrompt?.title || 'none'
+				});
+				
+				submitPrompt(event.data.text, { capturedState: postTickCapturedState });
 			}
 		}
 	};
@@ -437,21 +522,22 @@
 	onMount(async () => {
 		loading = true;
 		console.log('mounted');
+		
+		// Enable enhanced state validation debug mode in development
+		if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
+			enableEventProtectionDebug(true);
+		}
+		
 		window.addEventListener('message', onMessageHandler);
 		$socket?.on('chat-events', chatEventHandler);
 
-		pageSubscribe = page.subscribe(async (p) => {
-			if (p.url.pathname === '/') {
-				await tick();
-				initNewChat();
-			}
-		});
-
+		// Restore localStorage state BEFORE initializing new chats to ensure structured output persists
 		if (localStorage.getItem(`chat-input${chatIdProp ? `-${chatIdProp}` : ''}`)) {
 			prompt = '';
 			files = [];
 			selectedToolIds = [];
 			selectedFilterIds = [];
+			attachedPrompt = null;
 			webSearchEnabled = false;
 			imageGenerationEnabled = false;
 			codeInterpreterEnabled = false;
@@ -469,9 +555,33 @@
 					webSearchEnabled = input.webSearchEnabled;
 					imageGenerationEnabled = input.imageGenerationEnabled;
 					codeInterpreterEnabled = input.codeInterpreterEnabled;
+					
+					// Restore structured output settings for chat session persistence
+					if (input.structuredOutput !== undefined) {
+						currentStructuredOutput = input.structuredOutput;
+						console.log('🔄 Home page: Restored structured output enabled:', currentStructuredOutput);
+					}
+					if (input.structuredOutputSchema !== undefined) {
+						currentStructuredOutputSchema = input.structuredOutputSchema;
+						console.log('🔄 Home page: Restored structured output schema:', currentStructuredOutputSchema?.length || 0, 'chars');
+					}
+					if (input.structuredOutputName !== undefined) {
+						currentStructuredOutputName = input.structuredOutputName;
+						console.log('🔄 Home page: Restored structured output name:', currentStructuredOutputName);
+					}
+					if (input.attachedPrompt !== undefined) {
+						attachedPrompt = input.attachedPrompt;
+					}
 				}
 			} catch (e) {}
 		}
+
+		pageSubscribe = page.subscribe(async (p) => {
+			if (p.url.pathname === '/') {
+				await tick();
+				initNewChat();
+			}
+		});
 
 		if (!chatIdProp) {
 			loading = false;
@@ -836,8 +946,18 @@
 			prompt = $page.url.searchParams.get('q') ?? '';
 
 			if (prompt) {
+				// CRITICAL: Wait for tick() FIRST to ensure onChange has processed, THEN capture state
 				await tick();
-				submitPrompt(prompt);
+				
+				// Capture structured output state AFTER tick() to ensure onChange has updated the state
+				const postTickCapturedState = {
+					structuredOutput: currentStructuredOutput,
+					structuredOutputSchema: currentStructuredOutputSchema,
+					structuredOutputName: currentStructuredOutputName,
+					attachedPrompt: attachedPrompt
+				};
+				
+				submitPrompt(prompt, { capturedState: postTickCapturedState });
 			}
 		}
 
@@ -1340,8 +1460,69 @@
 	// Chat functions
 	//////////////////////////
 
-	const submitPrompt = async (userPrompt, { _raw = false } = {}) => {
+	const submitPrompt = async (userPrompt, { _raw = false, capturedState = null } = {}) => {
 		console.log('submitPrompt', userPrompt, $chatId);
+
+		// Use pre-tick captured state if available, otherwise capture current state
+		const capturedStructuredOutputState = capturedState || {
+			structuredOutput: currentStructuredOutput,
+			structuredOutputSchema: currentStructuredOutputSchema,
+			structuredOutputName: currentStructuredOutputName,
+			attachedPrompt: attachedPrompt
+		};
+		
+		// Enhanced state validation - compare captured state with current state
+		let validatedState = capturedStructuredOutputState;
+		if (capturedState) {
+			// We have pre-tick captured state, validate against current state
+			const currentState: StructuredOutputState = {
+				structuredOutput: currentStructuredOutput,
+				structuredOutputSchema: currentStructuredOutputSchema,
+				structuredOutputName: currentStructuredOutputName,
+				attachedPrompt: attachedPrompt
+			};
+			
+			const validation = validateStructuredOutputState(capturedState, currentState, {
+				tolerateMinorChanges: true,
+				logInconsistencies: true,
+				autoResolve: true
+			});
+			
+			if (!validation.consistent) {
+				console.warn('🔍 State inconsistency detected during submission:', {
+					inconsistencies: validation.inconsistencies,
+					recommendation: validation.recommendation
+				});
+				
+				// Use recommendation to resolve inconsistency
+				validatedState = validation.recommendation === 'use_current' ? 
+					validation.currentState : validation.capturedState;
+					
+				console.log('🔧 Using resolved state based on recommendation:', {
+					recommendation: validation.recommendation,
+					resolvedState: validatedState
+				});
+			} else {
+				console.log('✅ State validation passed - no inconsistencies detected');
+			}
+		}
+		
+		console.log('🔒 Final validated structured output state for API:', {
+			structuredOutput: validatedState.structuredOutput,
+			schemaLength: validatedState.structuredOutputSchema?.length || 0,
+			name: validatedState.structuredOutputName,
+			attachedPrompt: validatedState.attachedPrompt?.title || validatedState.attachedPrompt?.name || 'none',
+			source: capturedState ? 'pre-tick-capture-validated' : 'in-submitPrompt-capture',
+			validationApplied: !!capturedState
+		});
+		
+		// CRITICAL DEBUG: Log the current component state at submission time
+		console.log('🔍 CURRENT COMPONENT STATE at submitPrompt:', {
+			currentStructuredOutput,
+			currentStructuredOutputSchema: currentStructuredOutputSchema?.length || 0,
+			currentStructuredOutputName,
+			currentAttachedPrompt: attachedPrompt?.title || attachedPrompt?.name || 'none'
+		});
 
 		const messages = createMessagesList(history, history.currentId);
 		const _selectedModels = selectedModels.map((modelId) =>
@@ -1410,8 +1591,35 @@
 				array.findIndex((i) => JSON.stringify(i) === JSON.stringify(item)) === index
 		);
 
+		console.log('🧹 BEFORE input reset - Current state:', {
+			currentStructuredOutput,
+			currentStructuredOutputSchema: currentStructuredOutputSchema?.length || 0,
+			currentStructuredOutputName,
+			attachedPrompt: attachedPrompt?.title || attachedPrompt?.name || 'none'
+		});
+		
+		// CRITICAL FIX: Set a flag to prevent MessageInput reactive updates during submission
+		// This prevents prompt clearing from triggering onChange events that reset structured output
+		submissionInProgress = true;
+		
 		files = [];
 		prompt = '';
+		
+		console.log('🧹 AFTER input reset - Current state:', {
+			currentStructuredOutput,
+			currentStructuredOutputSchema: currentStructuredOutputSchema?.length || 0,
+			currentStructuredOutputName,
+			attachedPrompt: attachedPrompt?.title || attachedPrompt?.name || 'none'
+		});
+		
+		// Reset the flag after a brief delay to allow submission to complete
+		setTimeout(() => {
+			submissionInProgress = false;
+			console.log('🔓 Submission flag cleared - reactive updates re-enabled');
+		}, 100);
+		
+		// Note: Structured output state clearing moved to after API call completion
+		// to prevent premature clearing that affects first message
 
 		// Create user message
 		let userMessageId = uuidv4();
@@ -1441,14 +1649,14 @@
 
 		saveSessionSelectedModels();
 
-		await sendPrompt(history, userPrompt, userMessageId, { newChat: true });
+		await sendPrompt(history, userPrompt, userMessageId, { newChat: true, capturedState: validatedState });
 	};
 
 	const sendPrompt = async (
 		_history,
 		prompt: string,
 		parentId: string,
-		{ modelId = null, modelIdx = null, newChat = false } = {}
+		{ modelId = null, modelIdx = null, newChat = false, capturedState = null } = {}
 	) => {
 		if (autoScroll) {
 			scrollToBottom();
@@ -1537,7 +1745,7 @@
 					const chatEventEmitter = await getChatEventEmitter(model.id, _chatId);
 
 					scrollToBottom();
-					await sendPromptSocket(_history, model, responseMessageId, _chatId);
+					await sendPromptSocket(_history, model, responseMessageId, _chatId, capturedState);
 
 					if (chatEventEmitter) clearInterval(chatEventEmitter);
 				} else {
@@ -1550,98 +1758,307 @@
 		chats.set(await getChatList(localStorage.token, $currentChatPage));
 	};
 
-	const processChecklistsSequentially = async (checklistFiles, _history, responseMessageId, model) => {
+	const processChecklistsWithContext = async (checklistFiles, _history, responseMessageId, model, userMessage, files) => {
 		const responseMessage = _history.messages[responseMessageId];
-		let aggregatedResults = [];
-
-		for (const checklistFile of checklistFiles) {
-			// Build markdown header for the checklist
-			let checklistResult = `# ${checklistFile.title || checklistFile.name}\n\n`;
-			if (checklistFile.description) {
-				checklistResult += `${checklistFile.description}\n\n---\n\n`;
-			}
-
-			// Sort checklist items by order_index
-			const sortedItems = (checklistFile.items || []).sort((a, b) => a.order_index - b.order_index);
-			let promptResults = [];
-
-			for (let i = 0; i < sortedItems.length; i++) {
-				const item = sortedItems[i];
-				
-				try {
-					console.log(`Executing prompt: ${item.prompt_command}`);
-					
-					// Get the prompt data
-					const promptData = await getPromptByCommand(localStorage.token, item.prompt_command);
-					
-					if (!promptData) {
-						console.warn(`Prompt not found: ${item.prompt_command}`);
-						const errorMsg = `❌ Prompt "${item.prompt_command}" not found. Create this prompt first or remove from checklist.`;
-						promptResults.push(`**${i + 1}. ${item.prompt_command}**\n\n${errorMsg}\n\n`);
-						continue;
+		const hasOtherFiles = files.length > 0;
+		const hasUserMessage = userMessage?.content && userMessage.content.trim();
+		
+		try {
+			// Initialize structured data storage for export
+			let checklistResults = [];
+			let aggregatedDisplayContent = '';
+			
+			// Start processing indicator
+			scrollToBottom();
+			eventTarget.dispatchEvent(
+				new CustomEvent('chat:start', {
+					detail: {
+						id: responseMessageId
 					}
-
-					console.log(`Found prompt: ${promptData.title} (${item.prompt_command})`);
-
-					// Process prompt content with variables (similar to the existing logic in Checklists.svelte)
-					let processedContent = await processPromptVariables(promptData.content);
+				})
+			);
+			await tick();
+			
+			for (const checklistFile of checklistFiles) {
+				aggregatedDisplayContent += `# ${checklistFile.title || checklistFile.name}\n\n`;
+				if (checklistFile.description) {
+					aggregatedDisplayContent += `${checklistFile.description}\n\n---\n\n`;
+				}
+				
+				const sortedItems = (checklistFile.items || []).sort((a, b) => a.order_index - b.order_index);
+				
+				for (let i = 0; i < sortedItems.length; i++) {
+					const item = sortedItems[i];
 					
-					// Create a temporary message for this prompt execution
-					const promptMessageId = uuidv4();
-					const tempUserMessage = {
-						id: uuidv4(),
-						parentId: responseMessage.parentId,
-						childrenIds: [promptMessageId],
-						role: 'user',
-						content: processedContent,
-						timestamp: Date.now()
-					};
-					
-					const tempResponseMessage = {
-						id: promptMessageId,
-						parentId: tempUserMessage.id,
-						childrenIds: [],
-						role: 'assistant',
-						content: '',
-						timestamp: Date.now(),
-						model: model.id,
-						done: false
-					};
-
-					// Add temporary messages to history
-					_history.messages[tempUserMessage.id] = tempUserMessage;
-					_history.messages[promptMessageId] = tempResponseMessage;
-					
-					// Update UI to show progress
-					history = _history;
-					
-					// Execute the prompt using existing chat completion logic
-					await executePromptForChecklist(promptData.title, processedContent, promptMessageId, model, _history);
-					
-					// Get the response content
-					const responseContent = _history.messages[promptMessageId].content;
-					promptResults.push(`**${i + 1}. ${promptData.title}** (${item.prompt_command})\n\n${responseContent}\n\n---\n\n`);
-					
-				} catch (error) {
-					console.error('Error executing prompt:', item.prompt_command, error);
-					const errorMsg = `❌ Error executing "${item.prompt_command}": ${error.message}`;
-					promptResults.push(`**${i + 1}. ${item.prompt_command}**\n\n${errorMsg}\n\n`);
+					try {
+						const promptData = await getPromptByCommand(localStorage.token, item.prompt_command);
+						
+						if (!promptData) {
+							console.warn(`Prompt not found: ${item.prompt_command}`);
+							const errorMsg = `❌ Prompt "${item.prompt_command}" not found`;
+							aggregatedDisplayContent += `**${item.prompt_command}**\n\n${errorMsg}\n\n---\n\n`;
+							checklistResults.push({
+								prompt: item.prompt_command,
+								promptTitle: item.prompt_command,
+								promptCommand: item.prompt_command,
+								response: errorMsg,
+								rawResponse: null,
+								structured_output: false,
+								schema: null,
+								error: true,
+								validation_error: null
+							});
+							continue;
+						}
+						
+						// Process prompt variables
+						let processedContent = await processPromptVariables(promptData.content);
+						
+						// Apply context patterns for individual prompt
+						let individualPrompt = '';
+						if (hasUserMessage && !hasOtherFiles) {
+							individualPrompt = `Answer the following request "${userMessage.content}" considering this prompt: ${processedContent}`;
+						} else if (!hasUserMessage && hasOtherFiles) {
+							individualPrompt = processedContent;
+						} else {
+							individualPrompt = processedContent;
+						}
+						
+						// Update display
+						aggregatedDisplayContent += `**${promptData.title}**\n\n`;
+						_history.messages[responseMessageId].content = aggregatedDisplayContent + '⏳ Processing...';
+						history = _history;
+						await tick();
+						scrollToBottom();
+						
+						// Process individual prompt with structured output support
+						const promptResult = await processIndividualPrompt(
+							individualPrompt,
+							model,
+							files,
+							hasOtherFiles,
+							selectedFilterIds,
+							selectedToolIds,
+							promptData // Pass prompt data for structured output info
+						);
+						
+						// Store structured data for export with enhanced information
+						checklistResults.push({
+							prompt: processedContent,
+							promptTitle: promptData.title,
+							promptCommand: item.prompt_command,
+							response: promptResult.response || promptResult, // Handle both string and object responses
+							rawResponse: promptResult.rawResponse, // Store original JSON if available
+							structured_output: promptData.structured_output || false,
+							schema: promptData.structured_output_schema,
+							error: false,
+							validation_error: promptResult.validation_error
+						});
+						
+						// Update aggregated display
+						const displayResponse = promptResult.response || promptResult;
+						aggregatedDisplayContent += `${displayResponse}\n\n---\n\n`;
+						_history.messages[responseMessageId].content = aggregatedDisplayContent;
+						history = _history;
+						await tick();
+						scrollToBottom();
+						
+					} catch (error) {
+						console.error('Error processing prompt:', item.prompt_command, error);
+						const errorMsg = `❌ Error with "${item.prompt_command}": ${error.message}`;
+						aggregatedDisplayContent += `**${item.prompt_command}**\n\n${errorMsg}\n\n---\n\n`;
+						checklistResults.push({
+							prompt: item.prompt_command,
+							promptTitle: item.prompt_command,
+							promptCommand: item.prompt_command,
+							response: errorMsg,
+							rawResponse: null,
+							structured_output: false,
+							schema: null,
+							error: true,
+							validation_error: error?.message || 'Unknown error'
+						});
+					}
 				}
 			}
-
-			// Combine checklist header with all prompt results
-			checklistResult += promptResults.join('');
-			aggregatedResults.push(checklistResult);
+			
+			// Store structured data in message metadata for export
+			_history.messages[responseMessageId].checklistResults = checklistResults;
+			_history.messages[responseMessageId].hasChecklistData = true;
+			_history.messages[responseMessageId].done = true;
+			history = _history;
+			
+			// Prevent normal processing by setting user message to empty
+			userMessage.content = '';
+			return 'CHECKLIST_PROCESSED';
+			
+		} catch (error) {
+			console.error('Error processing checklists:', error);
+			_history.messages[responseMessageId].content = `❌ Error processing checklists: ${error.message}`;
+			_history.messages[responseMessageId].done = true;
+			history = _history;
+			return 'CHECKLIST_ERROR';
 		}
+	};
+	
+	const processIndividualPrompt = async (promptContent, model, files, hasFiles, filterIds = [], toolIds = [], promptData = null) => {
+		try {
+			const stream = model?.info?.params?.stream_response ?? $settings?.params?.stream_response ?? params?.stream_response ?? true;
+			
+			// Build messages for individual prompt
+			let messages = [
+				$settings?.system
+					? {
+							role: 'system',
+							content: `${promptTemplate(
+								params?.system ?? $settings?.system ?? '',
+								$user?.name,
+								$settings?.userLocation
+									? await getAndUpdateUserLocation(localStorage.token).catch((err) => {
+											console.error(err);
+											return undefined;
+										})
+									: undefined
+							)}`
+						}
+					: undefined,
+				{
+					role: 'user',
+					content: promptContent
+				}
+			].filter((message) => message);
 
-		// Update the response message with aggregated results
-		const finalResult = aggregatedResults.join('\n\n═══════════════════════════════════════\n\n');
-		_history.messages[responseMessageId].content = finalResult;
-		_history.messages[responseMessageId].done = true;
-		history = _history;
-		
-		scrollToBottom();
-		await tick();
+			const res = await generateOpenAIChatCompletion(
+				localStorage.token,
+				{
+					stream: false, // Use non-streaming for individual prompts
+					model: model.id,
+					messages: messages,
+					params: {
+						...$settings?.params,
+						...params,
+						stop:
+							(params?.stop ?? $settings?.params?.stop ?? undefined)
+								? (params?.stop.split(',').map((token) => token.trim()) ?? $settings.params.stop).map(
+										(str) => decodeURIComponent(JSON.parse('"' + str.replace(/\"/g, '\\"') + '"'))
+									)
+								: undefined
+					},
+
+					files: hasFiles ? files : undefined,
+
+					filter_ids: filterIds.length > 0 ? filterIds : undefined,
+					tool_ids: toolIds.length > 0 ? toolIds : undefined,
+					tool_servers: $toolServers,
+
+					features: {
+						image_generation:
+							$config?.features?.enable_image_generation &&
+							($user?.role === 'admin' || $user?.permissions?.features?.image_generation)
+								? imageGenerationEnabled
+								: false,
+						code_interpreter:
+							$config?.features?.enable_code_interpreter &&
+							($user?.role === 'admin' || $user?.permissions?.features?.code_interpreter)
+								? codeInterpreterEnabled
+								: false,
+						web_search:
+							$config?.features?.enable_web_search &&
+							($user?.role === 'admin' || $user?.permissions?.features?.web_search)
+								? webSearchEnabled || ($settings?.webSearch ?? false) === 'always'
+								: false,
+						memory: $settings?.memory ?? false
+					},
+					variables: {
+						...getPromptVariables(
+							$user?.name,
+							$settings?.userLocation
+								? await getAndUpdateUserLocation(localStorage.token).catch((err) => {
+										console.error(err);
+										return undefined;
+									})
+								: undefined
+						)
+					},
+					model_item: $models.find((m) => m.id === model.id),
+					
+					// Add required metadata for structured output support
+					metadata: {
+						structured_output: promptData?.structured_output || false,
+						structured_output_schema: promptData?.structured_output_schema
+					},
+					session_id: $socket?.id,
+					chat_id: $chatId
+				},
+				{
+					tool_id: toolIds.length > 0 ? toolIds[0] : null
+				}
+			);
+
+			if (res && res.ok) {
+				const responseData = await res.json();
+				let content = null;
+				
+				if (responseData.choices && responseData.choices[0] && responseData.choices[0].message) {
+					content = responseData.choices[0].message.content;
+				} else if (responseData.content) {
+					content = responseData.content;
+				}
+				
+				if (content) {
+					// For structured output prompts, try to handle JSON responses
+					if (promptData?.structured_output && promptData?.structured_output_schema) {
+						try {
+							// Try to parse as JSON first
+							const jsonResponse = JSON.parse(content);
+							return {
+								response: content, // Keep formatted JSON for display
+								rawResponse: content, // Store raw JSON
+								structured_output: true,
+								schema: promptData.structured_output_schema,
+								validation_error: null
+							};
+						} catch (parseError) {
+							// If not valid JSON, treat as regular response but note the validation error
+							return {
+								response: content,
+								rawResponse: null,
+								structured_output: true,
+								schema: promptData.structured_output_schema,
+								validation_error: `Response is not valid JSON: ${parseError.message}`
+							};
+						}
+					} else {
+						// Regular prompt, return simple string
+						return content;
+					}
+				}
+			}
+			
+			return promptData?.structured_output 
+				? {
+					response: 'Error: No response received',
+					rawResponse: null,
+					structured_output: true,
+					schema: promptData?.structured_output_schema,
+					validation_error: 'No response received from API'
+				}
+				: 'Error: No response received';
+			
+		} catch (error) {
+			console.error('Error processing individual prompt:', error);
+			const errorMessage = `Error: ${error?.message || error?.detail || String(error) || 'Unknown error'}`;
+			
+			return promptData?.structured_output 
+				? {
+					response: errorMessage,
+					rawResponse: null,
+					structured_output: true,
+					schema: promptData?.structured_output_schema,
+					validation_error: `Processing error: ${error?.message || 'Unknown error'}`
+				}
+				: errorMessage;
+		}
 	};
 
 	const processPromptVariables = async (content) => {
@@ -1708,7 +2125,23 @@
 				messages: messages,
 				params: {
 					...$settings?.params
-				}
+				},
+				
+				// Add required metadata and other parameters
+				metadata: {
+					structured_output: false  // Default to false for checklist execution
+				},
+				features: {
+					image_generation: false,
+					code_interpreter: false,
+					web_search: false,
+					memory: false
+				},
+				variables: {},
+				model_item: $models.find((m) => m.id === model.id),
+				session_id: $socket?.id,
+				chat_id: $chatId,
+				id: responseMessageId
 			}
 		);
 
@@ -1743,7 +2176,7 @@
 		}
 	};
 
-	const sendPromptSocket = async (_history, model, responseMessageId, _chatId) => {
+	const sendPromptSocket = async (_history, model, responseMessageId, _chatId, capturedState = null) => {
 		const chatMessages = createMessagesList(history, history.currentId);
 		const responseMessage = _history.messages[responseMessageId];
 		const userMessage = _history.messages[responseMessage.parentId];
@@ -1771,11 +2204,117 @@
 				array.findIndex((i) => JSON.stringify(i) === JSON.stringify(item)) === index
 		);
 
-		// Check for checklist attachments and process them sequentially
+		// Check for checklist attachments and handle different scenarios
 		const checklistFiles = (userMessage?.files ?? []).filter((item) => item.type === 'checklist');
+		const hasOtherFiles = files.length > 0;
+		const hasUserMessage = userMessage?.content && userMessage.content.trim();
+		
 		if (checklistFiles.length > 0) {
-			await processChecklistsSequentially(checklistFiles, _history, responseMessageId, model);
-			return; // Exit early to prevent normal processing
+			// Scenario validation: Checklist + Chat Message + File/Knowledge should be rejected
+			if (hasUserMessage && hasOtherFiles) {
+				_history.messages[responseMessageId].content = "❌ Cannot process checklist with both chat message and attached files/knowledge. Please use either:\n- Checklist with chat message only\n- Checklist with files/knowledge only";
+				_history.messages[responseMessageId].done = true;
+				history = _history;
+				return;
+			}
+			
+			// Process checklists with individual prompt-response handling
+			const processingResult = await processChecklistsWithContext(checklistFiles, _history, responseMessageId, model, userMessage, files);
+			
+			// If checklist processing completed, return early (no further processing needed)
+			if (processingResult === 'CHECKLIST_PROCESSED' || processingResult === 'CHECKLIST_ERROR') {
+				return;
+			}
+		}
+
+		// Handle attached prompt (new system) - use captured state to prevent reset during submit
+		let promptCommand = null;
+		let promptStructuredOutput = false;
+		let promptStructuredOutputSchema = null;
+		let systemMessageOverride = null;
+		
+		// Use captured state if available, otherwise fall back to current state
+		const effectiveAttachedPrompt = capturedState?.attachedPrompt || attachedPrompt;
+		
+		// Debug attached prompt detection
+		console.log('🔍 DEBUG: Attached prompt analysis:', {
+			capturedStatePrompt: capturedState?.attachedPrompt ? {
+				title: capturedState.attachedPrompt.title || capturedState.attachedPrompt.name,
+				hasStructuredOutput: !!capturedState.attachedPrompt.structured_output,
+				structuredOutputSchema: capturedState.attachedPrompt.structured_output_schema ? 'present' : 'missing'
+			} : null,
+			currentAttachedPrompt: attachedPrompt ? {
+				title: attachedPrompt.title || attachedPrompt.name,
+				hasStructuredOutput: !!attachedPrompt.structured_output,
+				structuredOutputSchema: attachedPrompt.structured_output_schema ? 'present' : 'missing'
+			} : null,
+			finalEffectivePrompt: effectiveAttachedPrompt ? {
+				title: effectiveAttachedPrompt.title || effectiveAttachedPrompt.name,
+				hasStructuredOutput: !!effectiveAttachedPrompt.structured_output,
+				structuredOutputSchema: effectiveAttachedPrompt.structured_output_schema ? 'present' : 'missing'
+			} : null
+		});
+		
+		if (effectiveAttachedPrompt) {
+			try {
+				console.log('🔍 Processing attached prompt (from captured state):', effectiveAttachedPrompt.title || effectiveAttachedPrompt.name);
+				
+				// Process the prompt content with variable substitution
+				let processedContent = effectiveAttachedPrompt.content;
+				
+				// Replace variables in the prompt (same logic as before)
+				if (processedContent.includes('{{USER_NAME}}')) {
+					const userName = $user?.name || 'User';
+					processedContent = processedContent.replaceAll('{{USER_NAME}}', userName);
+				}
+				
+				if (processedContent.includes('{{CURRENT_DATE}}')) {
+					const currentDate = new Date().toLocaleDateString();
+					processedContent = processedContent.replaceAll('{{CURRENT_DATE}}', currentDate);
+				}
+				
+				if (processedContent.includes('{{CURRENT_TIME}}')) {
+					const currentTime = new Date().toLocaleTimeString();
+					processedContent = processedContent.replaceAll('{{CURRENT_TIME}}', currentTime);
+				}
+				
+				if (processedContent.includes('{{CURRENT_DATETIME}}')) {
+					const currentDateTime = new Date().toLocaleString();
+					processedContent = processedContent.replaceAll('{{CURRENT_DATETIME}}', currentDateTime);
+				}
+				
+				// Set the processed content as system message override
+				systemMessageOverride = processedContent;
+				
+				// Handle structured output from attached prompt
+				if (effectiveAttachedPrompt.structured_output) {
+					promptStructuredOutput = true;
+					promptStructuredOutputSchema = effectiveAttachedPrompt.structured_output_schema;
+					promptCommand = effectiveAttachedPrompt.command; // Keep for metadata
+					
+					console.log('✅ Attached prompt with structured output configured (from captured state):', {
+						command: promptCommand,
+						schema_length: promptStructuredOutputSchema?.length || 0,
+						title: effectiveAttachedPrompt.title || effectiveAttachedPrompt.name,
+						schema_preview: promptStructuredOutputSchema?.substring(0, 200) + '...'
+					});
+				} else {
+					console.log('❌ Attached prompt has NO structured output:', {
+						title: effectiveAttachedPrompt.title || effectiveAttachedPrompt.name,
+						structured_output_field: effectiveAttachedPrompt.structured_output,
+						schema_field: effectiveAttachedPrompt.structured_output_schema ? 'present' : 'missing'
+					});
+				}
+				
+				console.log('📋 Processed attached prompt (from captured state):', {
+					title: effectiveAttachedPrompt.title || effectiveAttachedPrompt.name,
+					hasStructuredOutput: effectiveAttachedPrompt.structured_output,
+					contentLength: processedContent.length
+				});
+				
+			} catch (error) {
+				console.error('Error processing attached prompt:', error);
+			}
 		}
 
 		scrollToBottom();
@@ -1795,26 +2334,42 @@
 			true;
 
 		let messages = [
-			params?.system || $settings.system
+			// Use systemMessageOverride from attached prompt if available, otherwise use default system message
+			systemMessageOverride
 				? {
 						role: 'system',
-						content: `${promptTemplate(
-							params?.system ?? $settings?.system ?? '',
-							$user?.name,
-							$settings?.userLocation
-								? await getAndUpdateUserLocation(localStorage.token).catch((err) => {
-										console.error(err);
-										return undefined;
-									})
-								: undefined
-						)}`
+						content: systemMessageOverride
 					}
-				: undefined,
+				: params?.system || $settings.system
+					? {
+							role: 'system',
+							content: `${promptTemplate(
+								params?.system ?? $settings?.system ?? '',
+								$user?.name,
+								$settings?.userLocation
+									? await getAndUpdateUserLocation(localStorage.token).catch((err) => {
+											console.error(err);
+											return undefined;
+										})
+									: undefined
+							)}`
+						}
+					: undefined,
 			...createMessagesList(_history, responseMessageId).map((message) => ({
 				...message,
 				content: processDetails(message.content)
 			}))
 		].filter((message) => message);
+		
+		// Debug logging for system message
+		if (systemMessageOverride) {
+			console.log('✅ Using attached prompt as system message:', {
+				source: 'attached_prompt',
+				title: attachedPrompt?.title || attachedPrompt?.name,
+				contentLength: systemMessageOverride.length,
+				preview: systemMessageOverride.substring(0, 100) + '...'
+			});
+		}
 
 		messages = messages
 			.map((message, idx, arr) => ({
@@ -1897,6 +2452,69 @@
 				},
 				model_item: $models.find((m) => m.id === model.id),
 
+				metadata: (() => {
+					// ULTRA-DEBUG: Log everything at metadata creation time
+					console.log('🔥 ULTRA-DEBUG: Complete state dump at metadata creation:', {
+						'capturedState (full)': capturedState,
+						'currentStructuredOutput': currentStructuredOutput,
+						'currentStructuredOutputSchema (length)': currentStructuredOutputSchema?.length || 0,
+						'currentStructuredOutputName': currentStructuredOutputName,
+						'attachedPrompt': attachedPrompt,
+						'promptStructuredOutput': promptStructuredOutput,
+						'promptStructuredOutputSchema (length)': promptStructuredOutputSchema?.length || 0,
+						'promptCommand': promptCommand
+					});
+
+					// Use captured state values to prevent loss during component lifecycle
+					const effectiveStructuredOutput = capturedState?.structuredOutput || currentStructuredOutput;
+					const effectiveStructuredOutputSchema = capturedState?.structuredOutputSchema || currentStructuredOutputSchema;
+					const effectiveStructuredOutputName = capturedState?.structuredOutputName || currentStructuredOutputName;
+					const effectiveAttachedPromptForMeta = capturedState?.attachedPrompt || attachedPrompt;
+					
+					// Debug the effective variables
+					console.log('🔧 DEBUG: Effective values calculation:', {
+						'capturedState?.structuredOutput': capturedState?.structuredOutput,
+						'currentStructuredOutput': currentStructuredOutput,
+						'effectiveStructuredOutput': effectiveStructuredOutput,
+						'capturedState?.structuredOutputSchema (length)': capturedState?.structuredOutputSchema?.length || 0,
+						'currentStructuredOutputSchema (length)': currentStructuredOutputSchema?.length || 0,
+						'effectiveStructuredOutputSchema (length)': effectiveStructuredOutputSchema?.length || 0,
+						'promptStructuredOutput': promptStructuredOutput,
+						'promptStructuredOutputSchema (length)': promptStructuredOutputSchema?.length || 0
+					});
+					
+					const metadata = {
+						structured_output: promptStructuredOutput || effectiveStructuredOutput,
+						structured_output_schema: effectiveStructuredOutputSchema || promptStructuredOutputSchema,
+						structured_output_name: effectiveStructuredOutputName,
+						...(promptCommand ? { prompt_command: promptCommand } : {}),
+						...(systemMessageOverride ? { system_message_override: systemMessageOverride } : {}),
+						...(effectiveAttachedPromptForMeta ? { attached_prompt: { title: effectiveAttachedPromptForMeta.title || effectiveAttachedPromptForMeta.name, command: effectiveAttachedPromptForMeta.command } } : {})
+					};
+					
+					// FINAL DEBUG: Show exactly what's being sent to backend
+					console.log('🚀 FINAL METADATA being sent to OpenAI API:', {
+						structured_output: metadata.structured_output,
+						structured_output_schema: metadata.structured_output_schema ? `${metadata.structured_output_schema.length} chars` : 'null',
+						structured_output_name: metadata.structured_output_name,
+						hasPromptCommand: !!metadata.prompt_command,
+						hasSystemOverride: !!metadata.system_message_override,
+						hasAttachedPrompt: !!metadata.attached_prompt,
+						'FULL metadata': metadata
+					});
+					
+					// Error if structured output should be enabled but isn't
+					if ((effectiveStructuredOutput || promptStructuredOutput) && !metadata.structured_output) {
+						console.error('🚨 CRITICAL: Structured output should be enabled but metadata.structured_output is false!', {
+							effectiveStructuredOutput,
+							promptStructuredOutput,
+							'metadata.structured_output': metadata.structured_output
+						});
+					}
+					
+					return metadata;
+				})(),
+
 				session_id: $socket?.id,
 				chat_id: $chatId,
 				id: responseMessageId,
@@ -1953,6 +2571,16 @@
 
 		await tick();
 		scrollToBottom();
+		
+		// Clear structured output state after API call has been initiated successfully
+		// This ensures the metadata was sent to the backend before clearing the state
+		if (capturedState && (capturedState.structuredOutput || capturedState.structuredOutputSchema)) {
+			// Only clear if we actually sent structured output data
+			currentStructuredOutput = false;
+			currentStructuredOutputSchema = '';
+			currentStructuredOutputName = '';
+			console.log('🧹 Cleared structured output state after API call initiated successfully');
+		}
 	};
 
 	const handleOpenAIError = async (error, responseMessage) => {
@@ -2094,7 +2722,7 @@
 				.at(0);
 
 			if (model) {
-				await sendPromptSocket(history, model, responseMessage.id, _chatId);
+				await sendPromptSocket(history, model, responseMessage.id, _chatId, null);
 			}
 		}
 	};
@@ -2318,7 +2946,80 @@
 									transparentBackground={$settings?.backgroundImageUrl ?? false}
 									{stopResponse}
 									{createMessagePair}
+									externalStructuredOutput={currentStructuredOutput}
+									externalStructuredOutputSchema={currentStructuredOutputSchema}
+									externalStructuredOutputName={currentStructuredOutputName}
 									onChange={(input) => {
+										// ULTRA-DEBUG: Log ALL onChange calls to track data flow
+										console.log('📥 Chat onChange CALLED:', {
+											timestamp: new Date().toISOString(),
+											submissionInProgress,
+											'incoming': {
+												structuredOutput: input.structuredOutput,
+												structuredOutputSchema: input.structuredOutputSchema ? `${input.structuredOutputSchema.length} chars` : 'none',
+												structuredOutputName: input.structuredOutputName,
+												attachedPrompt: input.attachedPrompt ? `${input.attachedPrompt.title || input.attachedPrompt.name}` : 'none',
+												prompt: input.prompt?.substring(0, 50) + (input.prompt?.length > 50 ? '...' : '')
+											}
+										});
+
+										// CRITICAL FIX: Check submission flag to prevent destructive updates
+										if (submissionInProgress) {
+											console.log('🚫 BLOCKED onChange during submission - preventing destructive update');
+											return; // Exit early - don't process the update
+										}
+
+										// ENHANCED FIX: Always accept structured output updates when they contain valid data
+										// Simplified logic - if incoming has structured output data, always accept it
+										if (input.structuredOutput && input.structuredOutputSchema) {
+											console.log('✅ ACCEPTING: Incoming structured output data');
+											
+											currentStructuredOutput = input.structuredOutput;
+											currentStructuredOutputSchema = input.structuredOutputSchema;
+											currentStructuredOutputName = input.structuredOutputName || '';
+											
+											console.log('✅ Updated Chat structured output state:', {
+												currentStructuredOutput,
+												currentSchemaLength: currentStructuredOutputSchema?.length || 0,
+												currentStructuredOutputName
+											});
+										} else if (!currentStructuredOutput) {
+											// Only update if we don't currently have structured output data
+											console.log('📥 UPDATING: No current structured output, accepting incoming state');
+											
+											currentStructuredOutput = input.structuredOutput || false;
+											currentStructuredOutputSchema = input.structuredOutputSchema || '';
+											currentStructuredOutputName = input.structuredOutputName || '';
+										} else {
+											console.log('🛡️ PROTECTING: Keeping current structured output data intact');
+										}
+										
+										// Always update attached prompt (it has its own protection logic)
+										attachedPrompt = input.attachedPrompt || null;
+										
+										console.log('📥 Chat state after update:', {
+											currentStructuredOutput,
+											currentStructuredOutputSchema: currentStructuredOutputSchema ? `${currentStructuredOutputSchema.length} chars` : 'none',
+											currentStructuredOutputName,
+											attachedPrompt: attachedPrompt ? `${attachedPrompt.title || attachedPrompt.name}` : 'none'
+										});
+										
+										if (input.structuredOutput) {
+											console.log('📥 Chat received structured output:', {
+												structuredOutput: currentStructuredOutput,
+												schema: currentStructuredOutputSchema,
+												name: currentStructuredOutputName
+											});
+										}
+										
+										if (attachedPrompt) {
+											console.log('📥 Chat received attached prompt:', {
+												title: attachedPrompt.title || attachedPrompt.name,
+												command: attachedPrompt.command,
+												hasStructuredOutput: attachedPrompt.structured_output
+											});
+										}
+										
 										if (!$temporaryChatEnabled) {
 											if (input.prompt !== null) {
 												localStorage.setItem(
@@ -2343,11 +3044,36 @@
 									}}
 									on:submit={async (e) => {
 										if (e.detail || files.length > 0) {
-											await tick();
+											console.log('🚀 SUBMIT HANDLER - State at submission time:', {
+												currentStructuredOutput,
+												currentStructuredOutputSchema: currentStructuredOutputSchema ? `${currentStructuredOutputSchema.length} chars` : 'none',
+												currentStructuredOutputName,
+												submissionInProgress
+											});
+
+											// CRITICAL FIX: Capture structured output state IMMEDIATELY to prevent race conditions
+											const immediateCapturedState = {
+												structuredOutput: currentStructuredOutput,
+												structuredOutputSchema: currentStructuredOutputSchema,
+												structuredOutputName: currentStructuredOutputName,
+												attachedPrompt: attachedPrompt
+											};
+											
+											console.log('🔒 IMMEDIATE Captured structured output state for API:', {
+												structuredOutput: immediateCapturedState.structuredOutput,
+												schemaLength: immediateCapturedState.structuredOutputSchema?.length || 0,
+												name: immediateCapturedState.structuredOutputName,
+												attachedPrompt: immediateCapturedState.attachedPrompt?.title || immediateCapturedState.attachedPrompt?.name || 'none'
+											});
+											
+											// Set submission flag immediately to prevent destructive onChange updates
+											submissionInProgress = true;
+											
 											submitPrompt(
 												($settings?.richTextInput ?? true)
 													? e.detail.replaceAll('\n\n', '\n')
-													: e.detail
+													: e.detail,
+												{ capturedState: immediateCapturedState }
 											);
 										}
 									}}
@@ -2377,6 +3103,57 @@
 									toolServers={$toolServers}
 									{stopResponse}
 									{createMessagePair}
+									externalStructuredOutput={currentStructuredOutput}
+									externalStructuredOutputSchema={currentStructuredOutputSchema}
+									externalStructuredOutputName={currentStructuredOutputName}
+									onChange={(input) => {
+										// ULTRA-DEBUG: Log ALL onChange calls from Placeholder to track data flow
+										console.log('📥 Chat onChange CALLED FROM PLACEHOLDER:', {
+											timestamp: new Date().toISOString(),
+											submissionInProgress,
+											'incoming': {
+												structuredOutput: input.structuredOutput,
+												structuredOutputSchema: input.structuredOutputSchema ? `${input.structuredOutputSchema.length} chars` : 'none',
+												structuredOutputName: input.structuredOutputName,
+												attachedPrompt: input.attachedPrompt ? `${input.attachedPrompt.title || input.attachedPrompt.name}` : 'none',
+												prompt: input.prompt?.substring(0, 50) + (input.prompt?.length > 50 ? '...' : '')
+											}
+										});
+
+										// CRITICAL FIX: Check submission flag to prevent destructive updates
+										if (submissionInProgress) {
+											console.log('🚫 BLOCKED onChange during submission - preventing destructive update');
+											return; // Exit early - don't process the update
+										}
+
+										// ENHANCED FIX: Always accept structured output updates when they contain valid data
+										// Simplified logic - if incoming has structured output data, always accept it
+										if (input.structuredOutput && input.structuredOutputSchema) {
+											console.log('✅ ACCEPTING: Incoming structured output data from Placeholder');
+											
+											currentStructuredOutput = input.structuredOutput;
+											currentStructuredOutputSchema = input.structuredOutputSchema;
+											currentStructuredOutputName = input.structuredOutputName || '';
+											
+											console.log('✅ Updated Chat structured output state from Placeholder:', {
+												currentStructuredOutput,
+												currentSchemaLength: currentStructuredOutputSchema?.length || 0,
+												currentStructuredOutputName
+											});
+										} else if (!currentStructuredOutput) {
+											// Only update if we don't currently have structured output data
+											console.log('📥 UPDATING: No current structured output, accepting incoming state from Placeholder');
+											
+											currentStructuredOutput = input.structuredOutput || false;
+											currentStructuredOutputSchema = input.structuredOutputSchema || '';
+											currentStructuredOutputName = input.structuredOutputName || '';
+										} else {
+											console.log('🛡️ PROTECTING: Keeping current structured output data intact from Placeholder');
+										}
+										
+										// Always update attached prompt (it has its own protection logic)
+										attachedPrompt = input.attachedPrompt || null;
+									}}
 									on:upload={async (e) => {
 										const { type, data } = e.detail;
 
@@ -2388,11 +3165,36 @@
 									}}
 									on:submit={async (e) => {
 										if (e.detail || files.length > 0) {
-											await tick();
+											console.log('🚀 PLACEHOLDER SUBMIT HANDLER - State at submission time:', {
+												currentStructuredOutput,
+												currentStructuredOutputSchema: currentStructuredOutputSchema ? `${currentStructuredOutputSchema.length} chars` : 'none',
+												currentStructuredOutputName,
+												submissionInProgress
+											});
+
+											// CRITICAL FIX: Capture structured output state IMMEDIATELY to prevent race conditions
+											const immediateCapturedState = {
+												structuredOutput: currentStructuredOutput,
+												structuredOutputSchema: currentStructuredOutputSchema,
+												structuredOutputName: currentStructuredOutputName,
+												attachedPrompt: attachedPrompt
+											};
+											
+											console.log('🔒 IMMEDIATE Captured state for placeholder submit handler:', {
+												structuredOutput: immediateCapturedState.structuredOutput,
+												schemaLength: immediateCapturedState.structuredOutputSchema?.length || 0,
+												name: immediateCapturedState.structuredOutputName,
+												attachedPrompt: immediateCapturedState.attachedPrompt?.title || 'none'
+											});
+											
+											// Set submission flag immediately to prevent destructive onChange updates
+											submissionInProgress = true;
+											
 											submitPrompt(
 												($settings?.richTextInput ?? true)
 													? e.detail.replaceAll('\n\n', '\n')
-													: e.detail
+													: e.detail,
+												{ capturedState: immediateCapturedState }
 											);
 										}
 									}}

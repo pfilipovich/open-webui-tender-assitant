@@ -10,6 +10,7 @@ from open_webui.constants import ERROR_MESSAGES
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.utils.access_control import has_access, has_permission
+from open_webui.utils.schema_validation import validate_json_schema, SchemaValidationError
 
 router = APIRouter()
 
@@ -55,6 +56,15 @@ async def create_new_prompt(
             detail=ERROR_MESSAGES.UNAUTHORIZED,
         )
 
+    # Validate structured output schema if provided
+    if form_data.structured_output and form_data.structured_output_schema:
+        is_valid, error_msg, _ = validate_json_schema(form_data.structured_output_schema)
+        if not is_valid:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid structured output schema: {error_msg}"
+            )
+
     prompt = Prompts.get_prompt_by_command(form_data.command)
     if prompt is None:
         prompt = Prompts.insert_new_prompt(user.id, form_data)
@@ -87,9 +97,14 @@ async def get_prompt_by_command(command: str, user=Depends(get_verified_user)):
             or has_access(user.id, "read", prompt.access_control)
         ):
             return prompt
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
+            )
     else:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=status.HTTP_404_NOT_FOUND,
             detail=ERROR_MESSAGES.NOT_FOUND,
         )
 
@@ -122,6 +137,15 @@ async def update_prompt_by_command(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
         )
+
+    # Validate structured output schema if provided
+    if form_data.structured_output and form_data.structured_output_schema:
+        is_valid, error_msg, _ = validate_json_schema(form_data.structured_output_schema)
+        if not is_valid:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid structured output schema: {error_msg}"
+            )
 
     prompt = Prompts.update_prompt_by_command(f"/{command}", form_data)
     if prompt:

@@ -43,6 +43,8 @@ from open_webui.utils.misc import (
 
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.utils.access_control import has_access
+from open_webui.utils.schema_validation import validate_json_schema, convert_to_openai_schema
+from open_webui.models.prompts import Prompts
 
 
 log = logging.getLogger(__name__)
@@ -788,6 +790,129 @@ async def generate_chat_completion(
     if "max_tokens" in payload and "max_completion_tokens" in payload:
         del payload["max_tokens"]
 
+    # Handle system message override from attached prompt
+    if metadata and metadata.get("system_message_override"):
+        system_message_override = metadata.get("system_message_override")
+        messages = payload.get("messages", [])
+        
+        # Find existing system message and replace it, or add new one at the beginning
+        system_message_found = False
+        for message in messages:
+            if message.get("role") == "system":
+                message["content"] = system_message_override
+                system_message_found = True
+                log.info(f"🔄 Replaced existing system message with attached prompt")
+                break
+        
+        if not system_message_found:
+            messages.insert(0, {
+                "role": "system",
+                "content": system_message_override
+            })
+            log.info(f"➕ Added system message from attached prompt")
+        
+        payload["messages"] = messages
+        log.info(f"📋 Applied system message override from attached prompt: {system_message_override[:100]}...")
+
+    # Check for prompt usage and apply structured output configuration
+    if metadata:
+        prompt_command = metadata.get("prompt_command")
+        if prompt_command:
+            # Get prompt configuration
+            prompt = Prompts.get_prompt_by_command(prompt_command)
+            if prompt and prompt.structured_output:
+                # Apply prompt's structured output configuration to metadata
+                metadata["structured_output"] = True
+                if prompt.structured_output_schema:
+                    metadata["structured_output_schema"] = prompt.structured_output_schema
+                log.info(f"Applied structured output from prompt '{prompt_command}': {prompt.structured_output}")
+
+    # Handle structured output for OpenAI models
+    structured_output_enabled = metadata and metadata.get("structured_output", False) is True
+    structured_output_schema = metadata and metadata.get("structured_output_schema")
+    
+    log.info(f"🔍 Structured Output Debug: enabled={structured_output_enabled}, has_schema={bool(structured_output_schema)}, schema_length={len(structured_output_schema) if structured_output_schema else 0}")
+    
+    if structured_output_enabled:
+        # Only apply structured output for OpenAI API endpoints (including compatible ones)
+        is_openai_compatible = any([
+            "api.openai.com" in url,
+            "openai" in url.lower(),
+        ])
+        
+        log.info(f"🔍 OpenAI Compatible: {is_openai_compatible} for URL: {url}")
+        
+        if is_openai_compatible:
+            # Check if we have a valid schema to use
+            if structured_output_schema:
+                try:
+                    log.info(f"🔍 Processing structured output schema: {structured_output_schema[:200]}...")
+                    is_valid, error_msg, parsed_schema = validate_json_schema(structured_output_schema)
+                    log.info(f"🔍 Schema validation result: valid={is_valid}, error={error_msg}")
+                    
+                    if is_valid and parsed_schema:
+                        # Use structured output with schema
+                        openai_schema = convert_to_openai_schema(parsed_schema, "response")
+                        payload["response_format"] = openai_schema
+                        log.info(f"✅ Applied structured output schema: {openai_schema}")
+                        
+                        # Add schema instruction to system message for better compliance
+                        messages = payload.get("messages", [])
+                        schema_instruction = f"\n\nIMPORTANT: Please respond with valid JSON that matches this schema:\n{json.dumps(parsed_schema, indent=2)}"
+                        
+                        # Find or create system message
+                        system_message_found = False
+                        for message in messages:
+                            if message.get("role") == "system":
+                                message["content"] += schema_instruction
+                                system_message_found = True
+                                break
+                        
+                        if not system_message_found:
+                            messages.insert(0, {
+                                "role": "system", 
+                                "content": f"You are a helpful assistant.{schema_instruction}"
+                            })
+                        
+                        payload["messages"] = messages
+                    else:
+                        log.warning(f"⚠️ Invalid schema for structured output: {error_msg}")
+                        # Fallback to basic JSON object format
+                        payload["response_format"] = {"type": "json_object"}
+                        log.info(f"🔄 Using fallback JSON object format")
+                except Exception as e:
+                    log.error(f"❌ Error processing structured output schema: {e}", exc_info=True)
+                    # Fallback to basic JSON object format
+                    payload["response_format"] = {"type": "json_object"}
+                    log.info(f"🔄 Using fallback JSON object format due to error")
+            else:
+                # No schema provided, use basic JSON object format
+                payload["response_format"] = {"type": "json_object"}
+                log.info(f"🔄 No schema provided, using basic JSON object format")
+            
+            # Ensure system message instructs JSON output (for compatibility)
+            messages = payload.get("messages", [])
+            system_message_updated = False
+            
+            for message in messages:
+                if message.get("role") == "system":
+                    content = message.get("content", "")
+                    if "json" not in content.lower() and "JSON" not in content:
+                        message["content"] = content + "\n\nPlease format your response as valid JSON."
+                    system_message_updated = True
+                    break
+            
+            # Add system message if none exists
+            if not system_message_updated:
+                messages.insert(0, {
+                    "role": "system",
+                    "content": "Please format your response as valid JSON."
+                })
+                payload["messages"] = messages
+    else:
+        # Explicitly ensure no response_format is passed when structured output is disabled
+        payload.pop("response_format", None)
+
     # Convert the modified body back to JSON
     if "logit_bias" in payload:
         payload["logit_bias"] = json.loads(
@@ -826,6 +951,12 @@ async def generate_chat_completion(
         request_url = f"{url}/chat/completions"
         headers["Authorization"] = f"Bearer {key}"
 
+    # Log the final payload before sending to OpenAI (but mask sensitive data)
+    payload_debug = payload.copy()
+    if "messages" in payload_debug:
+        payload_debug["messages"] = f"[{len(payload_debug['messages'])} messages]"
+    log.info(f"🚀 Final OpenAI payload: {payload_debug}")
+    
     payload = json.dumps(payload)
 
     r = None
@@ -875,6 +1006,58 @@ async def generate_chat_completion(
                 detail = f"{response['error']['message'] if 'message' in response['error'] else response['error']}"
         elif isinstance(response, str):
             detail = response
+
+        # Check if this is a structured output related error
+        if (r and r.status == 400 and 
+            structured_output_enabled and 
+            "response_format" in payload_debug and
+            detail and "json_schema" in str(detail).lower()):
+            
+            log.warning(f"🔄 Structured output request failed, retrying with basic JSON format: {detail}")
+            
+            # Retry with basic JSON object format
+            try:
+                # Rebuild the payload without structured output schema
+                retry_payload = json.loads(payload)
+                retry_payload["response_format"] = {"type": "json_object"}
+                
+                log.info(f"🔄 Retrying with basic JSON object format")
+                
+                # Retry the request
+                retry_session = aiohttp.ClientSession(
+                    trust_env=True, timeout=aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT)
+                )
+                
+                retry_r = await retry_session.request(
+                    method="POST",
+                    url=request_url,
+                    data=json.dumps(retry_payload),
+                    headers=headers,
+                    ssl=AIOHTTP_CLIENT_SESSION_SSL,
+                )
+                
+                # Check if retry succeeded
+                if retry_r.status == 200 or "text/event-stream" in retry_r.headers.get("Content-Type", ""):
+                    log.info(f"✅ Retry with basic JSON format succeeded")
+                    if "text/event-stream" in retry_r.headers.get("Content-Type", ""):
+                        return StreamingResponse(
+                            retry_r.content,
+                            status_code=retry_r.status,
+                            headers=dict(retry_r.headers),
+                            background=BackgroundTask(
+                                cleanup_response, response=retry_r, session=retry_session
+                            ),
+                        )
+                    else:
+                        retry_response = await retry_r.json()
+                        retry_r.raise_for_status()
+                        await retry_session.close()
+                        return retry_response
+                else:
+                    await retry_session.close()
+                    
+            except Exception as retry_e:
+                log.error(f"❌ Retry with basic JSON format also failed: {retry_e}")
 
         raise HTTPException(
             status_code=r.status if r else 500,

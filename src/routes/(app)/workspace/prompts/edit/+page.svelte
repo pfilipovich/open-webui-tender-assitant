@@ -42,7 +42,9 @@
 					title: _prompt.title,
 					command: _prompt.command,
 					content: _prompt.content,
-					access_control: _prompt?.access_control === undefined ? {} : _prompt?.access_control
+					access_control: _prompt?.access_control === undefined ? {} : _prompt?.access_control,
+					structured_output: _prompt?.structured_output || false,
+					structured_output_schema: _prompt?.structured_output_schema || ''
 				};
 			} else {
 				goto('/workspace/prompts');

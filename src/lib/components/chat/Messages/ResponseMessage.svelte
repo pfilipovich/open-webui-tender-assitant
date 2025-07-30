@@ -49,6 +49,7 @@
 	import { KokoroWorker } from '$lib/workers/KokoroWorker';
 	import FileItem from '$lib/components/common/FileItem.svelte';
 	import FollowUps from './ResponseMessage/FollowUps.svelte';
+	import ChecklistExportButtons from './ChecklistExportButtons.svelte';
 	import { fade } from 'svelte/transition';
 	import { flyAndScale } from '$lib/utils/transitions';
 
@@ -101,6 +102,18 @@
 			usage?: unknown;
 		};
 		annotation?: { type: string; rating: number };
+		checklistResults?: {
+			prompt: string;
+			promptTitle?: string;
+			promptCommand?: string;
+			response: string;
+			rawResponse?: string; // Store original JSON
+			structured_output?: boolean; // Flag for structured responses
+			schema?: string; // Store schema used
+			error: boolean;
+			validation_error?: string; // Schema validation errors
+		}[];
+		hasChecklistData?: boolean;
 	}
 
 	export let chatId = '';
@@ -1023,6 +1036,12 @@
 										</svg>
 									</button>
 								</Tooltip>
+
+								<!-- Checklist Export Buttons -->
+								<ChecklistExportButtons 
+									checklistResults={message.checklistResults || []}
+									{isLastMessage}
+								/>
 
 								{#if $user?.role === 'admin' || ($user?.permissions?.chat?.tts ?? true)}
 									<Tooltip content={$i18n.t('Read Aloud')} placement="bottom">

@@ -5,6 +5,8 @@ type PromptItem = {
 	title: string;
 	content: string;
 	access_control?: null | object;
+	structured_output?: boolean;
+	structured_output_schema?: string;
 };
 
 export const createNewPrompt = async (token: string, prompt: PromptItem) => {
@@ -107,14 +109,19 @@ export const getPromptByCommand = async (token: string, command: string) => {
 	// Remove leading slash if present, since backend adds it automatically
 	command = command.charAt(0) === '/' ? command.slice(1) : command;
 
-	const res = await fetch(`${WEBUI_API_BASE_URL}/prompts/command/${command}`, {
+	const fetchOptions = {
 		method: 'GET',
 		headers: {
 			Accept: 'application/json',
 			'Content-Type': 'application/json',
 			authorization: `Bearer ${token}`
-		}
-	})
+		},
+		cache: 'no-cache'
+	};
+	
+	console.log('Fetching prompt with method:', fetchOptions.method, 'URL:', `${WEBUI_API_BASE_URL}/prompts/command/${command}`);
+	
+	const res = await fetch(`${WEBUI_API_BASE_URL}/prompts/command/${command}`, fetchOptions)
 		.then(async (res) => {
 			if (!res.ok) throw await res.json();
 			return res.json();
@@ -125,7 +132,8 @@ export const getPromptByCommand = async (token: string, command: string) => {
 		.catch((err) => {
 			error = err.detail;
 
-			console.error(err);
+			console.error('Error fetching prompt by command:', command, err);
+			console.error('Full error details:', err);
 			return null;
 		});
 
