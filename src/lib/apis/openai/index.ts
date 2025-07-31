@@ -362,7 +362,7 @@ export const chatCompletion = async (
 export const generateOpenAIChatCompletion = async (
 	token: string = '',
 	body: object,
-	url: string = `${WEBUI_BASE_URL}/api`
+	url: string = WEBUI_BASE_URL ? `${WEBUI_BASE_URL}/api` : '/api'
 ) => {
 	let error = null;
 

@@ -1989,20 +1989,17 @@
 					},
 					session_id: $socket?.id,
 					chat_id: $chatId
-				},
-				{
-					tool_id: toolIds.length > 0 ? toolIds[0] : null
 				}
 			);
 
-			if (res && res.ok) {
-				const responseData = await res.json();
+			if (res) {
+				// res is already the JSON response data from generateOpenAIChatCompletion
 				let content = null;
 				
-				if (responseData.choices && responseData.choices[0] && responseData.choices[0].message) {
-					content = responseData.choices[0].message.content;
-				} else if (responseData.content) {
-					content = responseData.content;
+				if (res.choices && res.choices[0] && res.choices[0].message) {
+					content = res.choices[0].message.content;
+				} else if (res.content) {
+					content = res.content;
 				}
 				
 				if (content) {

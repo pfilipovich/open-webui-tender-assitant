@@ -97,6 +97,9 @@
 	
 	// Prompt attachment state
 	let attachedPrompt = null;
+	
+	// Track last sent structured output data to prevent infinite reactive loops
+	let lastSentStructuredOutputData = null;
 
 	// Computed values for display - combines UI, external, and attached prompt structured output
 	$: attachedPromptStructuredOutput = attachedPrompt?.structured_output || false;
@@ -178,32 +181,66 @@
 			});
 		}
 		
-		// Defensive check to ensure onChange is available before calling
-		if (onChange) {
-			onChange({
-				prompt,
-				files: files
-					.filter((file) => file.type !== 'image')
-					.map((file) => {
-						return {
-							...file,
-							user: undefined,
-							access_control: undefined
-						};
-					}),
-				...structuredOutputData,
-				attachedPrompt,
-				selectedToolIds,
-				selectedFilterIds,
-				imageGenerationEnabled,
-				webSearchEnabled,
-				codeInterpreterEnabled
+		// CRITICAL FIX: Prevent infinite reactive loops by comparing with last sent data
+		const currentOutputData = {
+			structuredOutput: structuredOutputData.structuredOutput,
+			structuredOutputSchemaLength: structuredOutputData.structuredOutputSchema?.length || 0,
+			structuredOutputName: structuredOutputData.structuredOutputName,
+			prompt: prompt?.substring(0, 100), // Truncated for comparison
+			filesCount: files.length,
+			attachedPromptTitle: attachedPrompt?.title || attachedPrompt?.name || null
+		};
+		
+		// Compare with last sent data to prevent circular updates
+		const dataChanged = !lastSentStructuredOutputData || 
+			JSON.stringify(currentOutputData) !== JSON.stringify(lastSentStructuredOutputData);
+		
+		if (!dataChanged) {
+			console.log('🔄 SKIPPING onChange - data unchanged:', {
+				reason: 'Same data as last sent',
+				currentData: currentOutputData,
+				lastSentData: lastSentStructuredOutputData
 			});
 		} else {
-			console.warn('📤 MessageInput onChange not available, structured output data not sent:', {
-				hasStructuredOutput: structuredOutputData.structuredOutput,
-				schemaLength: structuredOutputData.structuredOutputSchema?.length || 0
+			// Data has changed, proceed with onChange call
+			console.log('📤 CALLING onChange - data changed:', {
+				reason: 'Data different from last sent',
+				changes: {
+					lastSent: lastSentStructuredOutputData,
+					current: currentOutputData
+				}
 			});
+			
+			// Update last sent data tracker
+			lastSentStructuredOutputData = JSON.parse(JSON.stringify(currentOutputData));
+			
+			// Defensive check to ensure onChange is available before calling
+			if (onChange) {
+				onChange({
+					prompt,
+					files: files
+						.filter((file) => file.type !== 'image')
+						.map((file) => {
+							return {
+								...file,
+								user: undefined,
+								access_control: undefined
+							};
+						}),
+					...structuredOutputData,
+					attachedPrompt,
+					selectedToolIds,
+					selectedFilterIds,
+					imageGenerationEnabled,
+					webSearchEnabled,
+					codeInterpreterEnabled
+				});
+			} else {
+				console.warn('📤 MessageInput onChange not available, structured output data not sent:', {
+					hasStructuredOutput: structuredOutputData.structuredOutput,
+					schemaLength: structuredOutputData.structuredOutputSchema?.length || 0
+				});
+			}
 		}
 	}
 
